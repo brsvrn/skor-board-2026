@@ -125,6 +125,32 @@ async function elDetail(lg,id){
  return out;
 }
 
+// Official federation mobile-app data, read-only and cached.
+const TBF='https://miniappapi.tbf.org.tr/webapi-service/api/';
+async function tbfGet(route){
+ const r=await fetch(TBF+route,{headers:{accept:'application/json'},signal:AbortSignal.timeout(8000),redirect:'error'});
+ if(!r.ok)throw Error('tbf_http');
+ const j=await r.json();if(j.isSuccess!==true||!Array.isArray(j.data))throw Error('tbf_data');
+ return j.data;
+}
+async function tbfStand(){
+ const y=seasonYear(),season=y+'-'+(y+1),ls=await tbfGet('League/get-leagues-and-seasons-by-prefix?prefix=bsl');
+ const m=ls.filter(x=>x.sezon===season&&x.url==='bsl-'+season);
+ if(m.length!==1||!Number.isInteger(+m[0].sezon_ID)||!Number.isInteger(+m[0].faaliyet_ID))throw Error('tbf_season');
+ const aid=+m[0].faaliyet_ID,raw=await tbfGet('League/get-standings-table?seasonId='+m[0].sezon_ID+'&leagueId='+aid);
+ const groups=raw.map(g=>{
+  if(!Array.isArray(g.standings))throw Error('tbf_rows');
+  const rows=g.standings.map(s=>{
+   const [rank,p,w,l,forPts,againstPts,pts]=['sira','o','g','m','a','y','puan'].map(k=>s[k]==null||s[k]===''?NaN:Number(s[k]));
+   if(+s.faaliyetAltAlanId!==aid||typeof s.takimAdi!=='string'||![rank,p,w,l,forPts,againstPts,pts].every(Number.isFinite)||rank<1||p<0||w<0||l<0||w+l!==p)throw Error('tbf_scope');
+   const logo=typeof s.teamLogo==='string'&&/^https:\/\/(?:www\.)?tbf\.org\.tr\//i.test(s.teamLogo)?s.teamLogo:'';
+   return {id:String(s.takimIslemId),nm:s.takimAdi,logo,rank,p,w,l,pct:p?(100*w/p).toFixed(1)+'%':'-',gd:forPts-againstPts,pts};
+  }).sort((a,b)=>a.rank-b.rank);
+  return {name:g.grup||'Basketbol Süper Ligi',rows,week:g.standings[0]?.hafta||null,source:'TBF',season};
+ }).filter(g=>g.rows.length);
+ if(!groups.length)throw Error('tbf_empty');return groups;
+}
+
 async function call(path, key) {
   const r = await fetch(BASE + path, { headers: { 'x-apisports-key': key } });
   if (!r.ok) throw new Error('upstream ' + r.status);
@@ -162,6 +188,10 @@ export default async function handler(req, res) {
       const slug = String(req.query.standings);
       const d = LEAGUES[slug];
       if (!d) return res.status(400).json({ error: 'bad league' });
+      if(slug==='as-tr'){
+        const groups=await tbfStand().catch(()=>null);
+        if(groups){res.setHeader('Cache-Control','s-maxage=900, stale-while-revalidate=3600');return res.status(200).json({groups,source:'TBF'});}
+      }
       if (COMP[slug]) {
         const groups = await elStand(slug).catch(() => []);
         if (groups.length) { res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=3600'); return res.status(200).json({ groups }); }

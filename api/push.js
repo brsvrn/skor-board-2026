@@ -1,8 +1,9 @@
 import webpush from 'web-push';
-import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,isGoal,follows} from '../lib/goal-push.js';
-const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores';
+import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,isGoal,follows,shouldScan,nextPoll} from '../lib/goal-push.js';
+const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
+async function markTick(c,now,state){await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state}),'EX',86400);}
 async function redis(c,...cmd){
  const r=await fetch(c.url,{method:'POST',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},body:JSON.stringify(cmd),signal:AbortSignal.timeout(6000)});
  const j=await r.json();if(!r.ok||j.error)throw Error('redis');return j.result;
@@ -22,11 +23,14 @@ async function tick(c){
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
  for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(s.fm.length||s.ft.length)subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
- if(!subs.length)return {checked:0,sent:0};
- const previous=pairs(await redis(c,'HGETALL',STATE)),result=await Promise.allSettled(leagues.map(l=>scores(l,now))),updates=[],out=[];
- for(let i=0;i<leagues.length;i++){
+ if(!subs.length){await markTick(c,now,'idle');return {checked:0,sent:0}}
+ const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
+ const due=leagues.filter(l=>shouldScan(parse(previous[l]),now,changed));
+ if(!due.length){await markTick(c,now,'ok');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
+ for(let i=0;i<due.length;i++){
   if(result[i].status!=='fulfilled')continue;
-  const lg=leagues[i],old=parse(previous[lg])||{},next={};
+  const lg=due[i],old=parse(previous[lg])||{},next={__scanAt:now,__nextPoll:nextPoll(result[i].value,subs.map(([,s])=>s),now)};
   for(const e of result[i].value){
    const before=old[e.id];next[e.id]={home:e.home,away:e.away,state:e.state,at:now};
    if(isGoal(before,e,now))for(const [id,s] of subs)if(s.changed<=before.at&&follows(s,e))out.push({id,s,e});
@@ -42,7 +46,9 @@ async function tick(c){
   catch(err){failed++;if(err.statusCode===404||err.statusCode===410)stale.add(id)}
  }));
  if(stale.size)await redis(c,'HDEL',SUB,...stale);
- return {checked:subs.length,leagues:result.filter(x=>x.status==='fulfilled').length,sent,failed,limited:Math.max(0,out.length-100)};
+ const good=result.filter(x=>x.status==='fulfilled').length;
+ await markTick(c,now,good===due.length?'ok':good?'partial':'upstream_error');
+ return {checked:subs.length,leagues:good,sent,failed,limited:Math.max(0,out.length-100)};
 }
 export default async function handler(req,res){
  const c=cfg(),action=String(req.query.action||'config');
@@ -53,10 +59,15 @@ export default async function handler(req,res){
    const pong=await redis(c,'PING');webpush.setVapidDetails(c.subject,c.pub,c.priv);
    return reply(res,200,{redis:pong==='PONG',vapid:true});
   }
+  if(action==='status'&&req.method==='GET'){
+   const s=parse(await redis(c,'GET',STATUS));
+   res.setHeader('Cache-Control','s-maxage=30, stale-while-revalidate=30');
+   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started'});
+  }
   if(action==='tick'){
    if(req.method!=='POST')return reply(res,405,{error:'method'});
    if(!equal(req.headers.authorization,'Bearer '+c.cron))return reply(res,401,{error:'unauthorized'});
-   return reply(res,200,await tick(c));
+   const result=await tick(c);return reply(res,200,result);
   }
   let origin=false;try{const u=new URL(req.headers.origin);origin=u.protocol==='https:'&&u.host===req.headers.host}catch{}
   if(req.method!=='POST'||!origin)return reply(res,403,{error:'origin'});

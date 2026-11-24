@@ -9,3 +9,6 @@ Sınırlar: ilk gözlem bildirim göndermez; 15 dakikadan eski skor karşılaşt
 
 ## Vercel Marketplace
 Bağlantı otomatik olarak KV_REST_API_URL ve KV_REST_API_TOKEN sağlıyorsa bu değişkenler de desteklenir. Önizleme ve üretim Redis anahtar alanları ayrıdır. Önizlemede GET /api/push?action=health yalnızca bağlantı ve VAPID yapılandırması kontrolü döndürür. Ayarlar'daki Test bildirimi düğmesi cihazın kendi aboneliğine sekiz saniye sonra sabit test bildirimi yollar; iki dakikada bir kullanılabilir. Zamanlayıcı aktif olmasa da test bildirimi denenebilir.
+
+## Scheduler setup (production)
+Create a free cron-job.org job, every minute, method POST, URL https://skor-board-2026.vercel.app/api/push?action=tick, header Authorization: Bearer <CRON_SECRET>. Set the same strong secret directly in Vercel Production; never commit it or include it in the URL. Redeploy after editing an environment variable. Public status (no subscription information): GET /api/push?action=status. When no favorites are followed, ticks are idle. Adaptive scan: active/near kickoff leagues every minute; other leagues every 10 minutes, changed favorites invalidate the delay. No cron provider is connected by this code. Check quota and upstream availability; notifications may be delayed or missed.
