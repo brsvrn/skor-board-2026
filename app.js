@@ -108,7 +108,7 @@ async function loadDay(){
  if(V.match==null&&!V.team)refresh();syncPoll()}
 function refresh(){const a=document.activeElement;if(V.tab==='home'&&!V.match&&!V.team&&a&&a.id==='q'&&$('#lst')){$('#lst').innerHTML=listBody()}else render()}
 async function loadAS(k){const d=k.slice(0,4)+'-'+k.slice(4,6)+'-'+k.slice(6,8);
- try{const r=await fetch('/api/bball?date='+d);if(r.status===503){D.asOff='nokey';return []}const j=await r.json();if(!r.ok||!Array.isArray(j.events)){D.asOff='err';return []}D.asOff='';
+ try{const r=await fetch('/api/bball?date='+d);if(r.status===503){D.asOff='nokey';return []}const j=await r.json();if(!r.ok||!Array.isArray(j.events)){D.asOff='err';return []}D.asOff=j.coverage?.otherEuropean||'';
   return j.events.filter(e=>LGN[e.lg]).map(e=>Object.assign(e,{id:String(e.id),date:new Date(e.date),det:[],h:Object.assign({color:null,form:'',rec:''},e.h),a:Object.assign({color:null,form:'',rec:''},e.a)}))}catch(x){D.asOff='err';return []}}
 function beep(){try{const C=window.AudioContext||window.webkitAudioContext;D.ac=D.ac||new C();const t=D.ac.currentTime;for(const [f,o] of [[880,0],[1175,.18]]){const os=D.ac.createOscillator(),g=D.ac.createGain();os.frequency.value=f;os.connect(g);g.connect(D.ac.destination);g.gain.setValueAtTime(.25,t+o);g.gain.exponentialRampToValueAtTime(.001,t+o+.35);os.start(t+o);os.stop(t+o+.36)}}catch(x){}}
 function notifyGoals(ev){
@@ -122,7 +122,7 @@ async function loadSum(lg,id){
  if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render()}
  else if(!D.sum[id]){D.sum[id]={failed:1};if(V.match&&V.match.id===id)render()}}
 async function loadStand(lg){
- if(isAS(lg)){try{const r=await fetch('/api/bball?standings='+lg);const j=await r.json();const g=r.ok&&Array.isArray(j.groups)?j.groups.filter(x=>x.rows&&x.rows.length).map(x=>({name:x.name,as:1,rows:x.rows.map(y=>Object.assign({gb:(y.gd>0?'+':'')+y.gd},y,{pct:typeof y.pct==='string'&&y.pct.includes('.')?y.pct:(y.pct?String(y.pct):'')}))})):[];D.stand[lg]=g.length?g:(r.status===503?'nokey':'off')}catch(x){D.stand[lg]='off'}if(V.tab==='std'||V.team)render();return}
+ if(isAS(lg)){try{const r=await fetch('/api/bball?standings='+lg);const j=await r.json();const g=r.ok&&Array.isArray(j.groups)?j.groups.filter(x=>x.rows&&x.rows.length).map(x=>({name:x.name,as:1,rows:x.rows.map(y=>Object.assign({gb:(y.gd>0?'+':'')+y.gd},y,{pct:typeof y.pct==='string'&&y.pct.includes('.')?y.pct:(y.pct?String(y.pct):'')}))})):[];D.stand[lg]=g.length?g:(j.error==='plan_limit'?'plan_limit':r.status===503?'nokey':'off')}catch(x){D.stand[lg]='off'}if(V.tab==='std'||V.team)render();return}
  const j=await api(`v2/sports/${sp(lg)}/${lg}/standings`);const grp=[];
  const walk=g=>{if(g.standings&&(g.standings.entries||[]).length){const es=g.standings.entries.map(en=>{const st={};for(const x of en.stats||[])st[x.name]=x;const v=n=>st[n]?+st[n].value:0;const t=en.team||{};
    return{id:String(t.id||''),note:en.note?{c:en.note.color,d:en.note.description}:null,chg:v('rankChange'),nm:t.shortDisplayName||t.displayName||'',logo:((t.logos||[])[0]||{}).href||'',rank:v('rank'),p:v('gamesPlayed'),w:v('wins'),d:v('ties'),l:v('losses'),gd:v('pointDifferential'),pts:v('points'),pct:st.winPercent?st.winPercent.displayValue:'',gb:st.gamesBehind?st.gamesBehind.displayValue:''}});
@@ -208,6 +208,7 @@ function listing(list){
  if(S.sort==='saat')return `<div class="lgb">${list.slice().sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`;
  const trm=list.filter(e=>!['tur.1','as-tr'].includes(e.lg)&&(isTR(e.h)||isTR(e.a)));const rest=list.filter(e=>!trm.includes(e));
  return (trm.length?`<div class="lgb trb"><div class="lgh"><i class="trdot"></i>Türk takımları<span class="mut" style="margin-left:auto;font-weight:600">${trm.length} maç</span></div>${trm.sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`:'')+grouped(rest)}
+function planCard(date){return `<div class="card stat"><i></i><span>${date?'Ücretsiz veri planı nedeniyle diğer Avrupa basketbol ligleri bu tarih için gösterilemiyor. NBA, EuroLeague ve EuroCup verileri varsa gösterilir.':'Bu ligin puan durumu mevcut ücretsiz veri planında sunulmuyor.'}</span></div>`}
 function nokeyCard(){return `<div class="card stat"><i></i><span>Avrupa basketbol ligleri için ücretsiz API-Basketball anahtarı henüz eklenmedi. Şimdilik NBA ve NCAA gösteriliyor.</span></div>`}
 function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:center;margin:-4px 0 12px">${actL().length} lig · son güncelleme ${hm(D.at)} · ${D.ev.some(e=>e.state==='in')?'30 sn':'2 dk'}da bir yenilenir</p>`;
  if(D.state==='off')return `<div class="card stat"><i></i><span>Canlı veriye ulaşılamadı. Bağlantını kontrol edip yeniden dene.</span></div>`;
@@ -215,7 +216,7 @@ function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:
 function filtered(){const all=D.ev;return V.filt==='live'?all.filter(e=>e.state==='in'):V.filt==='fav'?all.filter(isFav):V.filt==='done'?all.filter(e=>e.state==='post'):all}
 function listBody(){const L=listing(filtered());
  const empty=D.state==='ok'?`<div class="card empty"><p class="mut">${V.q?'Aramana uyan maç yok.':V.filt==='live'?'Şu an oynanan maç yok.':V.filt==='fav'?'Takip ettiğin maç yok. Maçların yanındaki yıldıza dokun.':'Bu tarihte seçili liglerde maç yok.'}</p></div>`:'';
- return `${liveState()}${S.sport==='basketball'&&D.asOff==='nokey'?nokeyCard():''}${L||empty}`}
+ return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${L||empty}`}
 function setQ(v){V.q=v;const l=$('#lst');if(l)l.innerHTML=listBody()}
 function setSort(k){S.sort=k;save();render()}
 function home(){if(D.state==='idle')setTimeout(loadDay);
@@ -350,6 +351,7 @@ function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(D.stand
  if(st==='loading')body=`<div class="card empty"><p class="mut">Puan durumu yükleniyor…</p></div>`;
  else if(st==='off')body=`<div class="card empty"><p class="mut">Bu lig için puan durumuna ulaşılamadı.</p></div>`;
  else if(st==='nokey')body=nokeyCard();
+ else if(st==='plan_limit')body=planCard(false);
  else{const gi=Math.min(V.grp,st.length-1);const g=st[gi];
   const head=B?`<th>G</th><th>M</th><th>%</th><th>${g.as?'AV':'FARK'}</th>`:'<th>O</th><th>G</th><th>B</th><th>M</th><th>AV</th><th>P</th>';
   const cells=r=>B?`<td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td><td>${esc(r.gb||'-')}</td>`:`<td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gd>0?'+':''}${r.gd}</td><td>${r.pts}</td>`;

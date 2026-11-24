@@ -92,7 +92,11 @@ async function call(path, key) {
   if (!r.ok) throw new Error('upstream ' + r.status);
   const j = await r.json();
   const er = j && j.errors;
-  if (er && (Array.isArray(er) ? er.length : Object.keys(er).length)) throw new Error(Object.values(er).join(' | '));
+  if (er && (Array.isArray(er) ? er.length : Object.keys(er).length)) {
+    const msg=Object.values(er).join(' | '),e=new Error(msg);
+    e.code=/free plan|subscription plan|not (?:available|accessible|included) (?:with|in|for|on) (?:your|the) (?:free |current )?plan|upgrade (?:your |the )?plan/i.test(msg)?'plan_limit':'upstream';
+    throw e;
+  }
   return j;
 }
 
@@ -134,9 +138,11 @@ export default async function handler(req, res) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'bad date' });
     const today = istDate(Date.now());
     const dd = (Date.parse(date) - Date.parse(today)) / 864e5;
+    const limited=dd < -1 || dd > 1;
+    let asError='';
     const [el, as] = await Promise.all([
       elDay(date),
-      key && dd >= -1 && dd <= 1 ? call(`games?date=${date}&timezone=Europe/Istanbul`, key).catch(() => null) : Promise.resolve(null),
+      key && !limited ? call(`games?date=${date}&timezone=Europe/Istanbul`, key).catch(e => {asError=e.code||'upstream';return null}) : Promise.resolve(null),
     ]);
     if (!key && !el.ok.length) { res.setHeader('Cache-Control', 's-maxage=300'); return res.status(503).json({ error: 'nokey' }); }
     const events = [];
@@ -152,9 +158,9 @@ export default async function handler(req, res) {
     const live = events.some(e => e.state === 'in');
     const ttl = live ? 60 : date === today ? 600 : date < today ? 21600 : 3600;
     res.setHeader('Cache-Control', `s-maxage=${ttl}, stale-while-revalidate=300`);
-    return res.status(200).json({ events });
+    return res.status(200).json({ events, coverage:{otherEuropean:!key?'nokey':limited||asError==='plan_limit'?'plan_limit':asError?'upstream':'ok',euroleague:el.ok} });
   } catch (e) {
     res.setHeader('Cache-Control', 's-maxage=120');
-    return res.status(502).json({ error: 'upstream', detail: String(e.message || '').slice(0, 200) });
+    return res.status(e.code==='plan_limit'?422:502).json({ error: e.code==='plan_limit'?'plan_limit':'upstream' });
   }
 }
