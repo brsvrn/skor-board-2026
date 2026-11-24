@@ -24,7 +24,7 @@
   function show(text, btn) {
     if (box || standalone) return;
     box = document.createElement('div'); box.className = 'ins'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Tribün uygulamasını yükle');
-    box.innerHTML = `<img src="/api/icon?s=192" alt=""><div style="flex:1;min-width:0"><b>Tribün'ü ana ekrana ekle</b><span>${text}</span></div><div class="ib2">${btn ? '<button class="y">Yükle</button>' : ''}<button class="n">${btn ? 'Sonra' : 'Tamam'}</button></div>`;
+    box.innerHTML = `<img src="/api/icon?s=192&v=2" alt=""><div style="flex:1;min-width:0"><b>Tribün'ü ana ekrana ekle</b><span>${text}</span></div><div class="ib2">${btn ? '<button class="y">Yükle</button>' : ''}<button class="n">${btn ? 'Sonra' : 'Tamam'}</button></div>`;
     document.body.append(box);
     box.querySelector('.n').onclick = () => close(7);
     const y = box.querySelector('.y');

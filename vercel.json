@@ -2,6 +2,9 @@
   "functions": {
     "api/push.js": {
       "maxDuration": 60
+    },
+    "api/icon.js": {
+      "includeFiles": "icons/tribun.webp"
     }
   }
 }

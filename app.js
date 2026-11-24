@@ -114,7 +114,7 @@ function beep(){try{const C=window.AudioContext||window.webkitAudioContext;D.ac=
 function notifyGoals(ev){
  for(const e of ev){if(isB(e.lg))continue;const k=e.id,p=D.prev[k],now=(+e.h.sc||0)+(+e.a.sc||0);
   if(p!=null&&e.state==='in'&&now>p&&isFav(e)){const t=`GOL! ${e.h.nm} ${e.h.sc}-${e.a.sc} ${e.a.nm}`;toast('⚽ '+t);if(S.sound)beep();try{navigator.vibrate&&navigator.vibrate([200,80,200])}catch(x){}
-   if(S.notif&&!window.TribunPush?.active()&&'Notification' in window&&Notification.permission==='granted'){try{navigator.serviceWorker?.ready.then(r=>r.showNotification('Tribün',{body:t,icon:'/api/icon?s=192'})).catch(()=>{})}catch(x){}}}
+   if(S.notif&&!window.TribunPush?.active()&&'Notification' in window&&Notification.permission==='granted'){try{navigator.serviceWorker?.ready.then(r=>r.showNotification('Tribün',{body:t,icon:'/api/icon?s=192&v=2'})).catch(()=>{})}catch(x){}}}
   D.prev[k]=now}}
 async function loadSum(lg,id){
  if(isAS(lg)){

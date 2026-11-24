@@ -49,7 +49,7 @@ export default async function handler(req,res){
  if(action==='config'&&req.method==='GET')return reply(res,200,{enabled:ready(c),publicKey:ready(c)?c.pub:null});
  if(!ready(c))return reply(res,503,{error:'push_not_configured'});
  try{
-  if(action==='health'&&req.method==='GET'&&process.env.VERCEL_ENV==='preview'){
+  if(action==='health'&&req.method==='GET'){
    const pong=await redis(c,'PING');webpush.setVapidDetails(c.subject,c.pub,c.priv);
    return reply(res,200,{redis:pong==='PONG',vapid:true});
   }
