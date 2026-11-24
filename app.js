@@ -16,7 +16,7 @@ const WCN={ESP:'İspanya',ARG:'Arjantin',FRA:'Fransa',ENG:'İngiltere',MAR:'Fas'
 const SCORERS=[['Kylian Mbappé','Fransa',10],['Lionel Messi','Arjantin',8],['Jude Bellingham','İngiltere',7],['Harry Kane','İngiltere',6],['Ousmane Dembélé','Fransa',6]];
 const S=(()=>{try{return JSON.parse(localStorage.getItem('tribun')||localStorage.getItem('mm2')||'null')}catch(e){return null}})()||{};
 S.fm=S.fm||[];S.ft=S.ft||[];S.ftl=S.ftl||{};S.sort=S.sort||'lig';S.sport=S.sport||'soccer';S.slg=S.slg&&LGN[S.slg]?S.slg:'tur.1';S.slgB=S.slgB||'nba';
-const save=()=>{try{localStorage.setItem('tribun',JSON.stringify(S))}catch(e){}};
+const save=()=>{try{localStorage.setItem('tribun',JSON.stringify(S))}catch(e){}window.TribunPush?.sync(S)};
 let V={tab:'home',off:0,filt:'all',match:null,team:null,ttab:'fik',dtab:'ozet',scat:'gen',kside:'home',grp:0,q:'',splash:!S.seen};
 const D={ev:[],state:'idle',at:null,timer:null,sum:{},stand:{},prev:{},tn:{},tr:new Set(),tm:{}};
 const $=s=>document.querySelector(s);
@@ -114,7 +114,7 @@ function beep(){try{const C=window.AudioContext||window.webkitAudioContext;D.ac=
 function notifyGoals(ev){
  for(const e of ev){if(isB(e.lg))continue;const k=e.id,p=D.prev[k],now=(+e.h.sc||0)+(+e.a.sc||0);
   if(p!=null&&e.state==='in'&&now>p&&isFav(e)){const t=`GOL! ${e.h.nm} ${e.h.sc}-${e.a.sc} ${e.a.nm}`;toast('⚽ '+t);if(S.sound)beep();try{navigator.vibrate&&navigator.vibrate([200,80,200])}catch(x){}
-   if(S.notif&&'Notification' in window&&Notification.permission==='granted'){try{new Notification('Tribün',{body:t})}catch(x){}}}
+   if(S.notif&&!window.TribunPush?.active()&&'Notification' in window&&Notification.permission==='granted'){try{navigator.serviceWorker?.ready.then(r=>r.showNotification('Tribün',{body:t,icon:'/api/icon?s=192'})).catch(()=>{})}catch(x){}}}
   D.prev[k]=now}}
 async function loadSum(lg,id){
  if(isAS(lg)){D.sum[id]={as:1};if(V.match&&V.match.id===id)render();return}
@@ -367,9 +367,9 @@ function favs(){if(D.state==='idle')setTimeout(loadDay);const ms=D.ev.filter(isF
  ${S.ft.length?`<div class="card">${S.ft.map(id=>`<div class="row">${S.ftl[id]&&LGN[S.ftl[id]]?`<button style="text-align:left;flex:1;min-height:44px;font-weight:600" onclick="openT('${S.ftl[id]}','${esc(id)}')">${esc(tn[id]||id)} <span class="mut">›</span></button>`:`<span>${esc(tn[id]||id)}</span>`}<button class="mut" style="min-height:44px" onclick="togT('${esc(id)}')">Çıkar</button></div>`).join('')}</div>`:`<div class="card empty"><p class="mut">Henüz takım yok. Bir maçı açıp takım adının yanındaki + düğmesine dokun.</p></div>`}
  <h2 style="text-align:left">${V.off===0?'Bugün':dayAt(V.off).toLocaleDateString('tr-TR',{day:'numeric',month:'long'})} takip ettiğin maçlar</h2>
  ${ms.length?grouped(ms):`<div class="card empty"><p class="mut">Seçili günde takip ettiğin maç yok.</p></div>`}
- ${!S.notif?`<button class="pill k" onclick="askNotif()">Gol bildirimlerini aç</button>`:''}`}
-async function askNotif(){if(!('Notification' in window)){S.notif=1;save();toast('Bu tarayıcı bildirim desteklemiyor; uygulama açıkken uyarı gösterilecek.');render();return}
- try{const p=await Notification.requestPermission();S.notif=p==='granted'?1:0;save();toast(p==='granted'?'Gol bildirimleri açık (sayfa açıkken).':'Bildirim izni verilmedi.')}catch(e){toast('Bildirim izni alınamadı.')}render()}
+ ${!(S.notif&&window.TribunPush?.active())?`<button class="pill k" onclick="askNotif()">Gol bildirimlerini aç</button>`:''}`}
+async function askNotif(){try{await window.TribunPush.enable(S);S.notif=1;save();toast('Kapalıyken de gol bildirimleri açık.')}catch(e){toast(e.message||'Bildirim izni alınamadı.')}render()}
+async function stopNotif(){S.notif=0;save();try{await window.TribunPush.disable();toast('Gol bildirimleri kapalı.')}catch(e){toast('Cihazda kapatıldı; sunucu kaydı silinemedi.')}render()}
 function wc(){return `<button class="back" onclick="go({tab:'std'})">${svg(ic.back)} Puan durumu</button><h1 style="margin:4px 0 4px">Dünya Kupası 2026</h1><p class="mut" style="margin-bottom:12px">Arşiv · Şampiyon İspanya · Final 19 Temmuz 2026, MetLife Stadyumu</p>
  <div class="lgb">${WC.map(m=>`<div class="mr" style="grid-template-columns:minmax(0,1fr) 84px minmax(0,1fr)"><span class="tm">${WCN[m[1]]}</span><div class="mid">${m[3]} - ${m[4]}<small>${m[0]}</small></div><span class="tm">${WCN[m[2]]}</span>${m[5]?`<span class="mut" style="grid-column:1/-1;margin-top:4px">${esc(m[5])}</span>`:''}</div>`).join('')}</div>
  <h2 style="text-align:left">Gol krallığı</h2><div class="card">${SCORERS.map((s,i)=>`<div class="row"><span><b style="color:var(--or)">${i+1}.</b> ${s[0]} <span class="mut">· ${s[1]}</span></span><span class="an" style="font-size:22px">${s[2]}</span></div>`).join('')}</div>`}
@@ -378,19 +378,20 @@ function profile(){const head=S.user?`<div class="av">${esc(S.user[0].toUpperCas
  return `<div style="text-align:center;margin:12px 0 18px">${head}</div><div class="card" style="display:grid;grid-template-columns:1fr 1fr;text-align:center;padding:14px"><div><div class="an" style="font-size:28px">${S.ft.length}</div><span class="mut">Takım</span></div><div><div class="an" style="font-size:28px">${S.fm.length}</div><span class="mut">Takip edilen maç</span></div></div>
  <div class="card" style="margin-top:14px"><button class="row" onclick="go({tab:'fav'})">Favoriler<span>›</span></button><button class="row" onclick="go({tab:'wc'})">Arşiv: Dünya Kupası 2026<span>›</span></button><button class="row" onclick="go({tab:'set'})">Bildirimler ve ayarlar<span>›</span></button></div>`}
 function editName(){modal(`<h1 style="font-size:30px">${S.user?'Adı düzenle':'Profil oluştur'}</h1><form onsubmit="event.preventDefault();const v=$('#nn').value.trim();if(!v)return toast('Bir ad yaz');S.user=v;save();closeM();render()"><input id="nn" value="${esc(S.user||'')}" maxlength="24" placeholder="Adın" autocomplete="nickname"><button class="pill k">Kaydet</button></form><p class="mut" style="margin-top:10px">Bilgiler yalnızca bu cihazda saklanır.</p>`);setTimeout(()=>$('#nn')?.focus(),50)}
-const L={g:['Gizlilik politikası','Ad, takip ettiğin maç ve takımlar yalnızca bu cihazda saklanır; sunucuya gönderilmez. Skor verileri ESPN\'in kamuya açık verisinden alınır.'],s:['Kullanım şartları','Skor ve istatistikler bilgilendirme amaçlıdır; bahis veya ticari amaçla kullanılamaz. Tribün; ESPN, FIFA, UEFA, NBA, EuroLeague ya da herhangi bir lig ile bağlantılı değildir. Takım logoları sahiplerine aittir.']};
+const L={g:['Gizlilik politikası','Profil adın yalnızca bu cihazda saklanır. Arka plan bildirimlerini açarsan cihazın Web Push aboneliği ile takip ettiğin maç ve takım kimlikleri sunucuda saklanır. Bildirimleri kapatabilir veya verilerini silebilirsin. Kullanılmayan kayıtlar 90 gün sonra temizlenir. Skor verileri ESPN\'in kamuya açık verisinden alınır.'],s:['Kullanım şartları','Skor ve istatistikler bilgilendirme amaçlıdır; bahis veya ticari amaçla kullanılamaz. Tribün; ESPN, FIFA, UEFA, NBA, EuroLeague ya da herhangi bir lig ile bağlantılı değildir. Takım logoları sahiplerine aittir.']};
 function legal(k){modal(`<h1 style="font-size:30px">${L[k][0]}</h1><p style="margin:12px 0;font-size:15px">${L[k][1]}</p><button class="pill" onclick="closeM()">Kapat</button>`)}
 function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg(ic.back)} Profil</button><h1 style="margin-bottom:14px">Ayarlar</h1>
- <div class="card"><button class="sw ${S.notif?'on':''}" role="switch" aria-checked="${!!S.notif}" onclick="${S.notif?'S.notif=0;save();render()':'askNotif()'}">Gol bildirimleri (takip edilen futbol maçları)<i></i></button></div>
+ <div class="card"><button class="sw ${S.notif&&window.TribunPush?.active()?'on':''}" role="switch" aria-checked="${!!(S.notif&&window.TribunPush?.active())}" onclick="${S.notif&&window.TribunPush?.active()?'stopNotif()':'askNotif()'}">Gol bildirimleri (takip edilen futbol maçları)<i></i></button></div>
  <div class="card" style="margin-top:10px"><button class="sw ${S.sound?'on':''}" role="switch" aria-checked="${!!S.sound}" onclick="S.sound=S.sound?0:1;save();if(S.sound)beep();render()">Gol sesi (takip edilen maçlar)<i></i></button></div>
- <p class="mut" style="margin:8px 4px 14px">Bildirimler uygulama açıkken çalışır. Kapalıyken bildirim için sunucu tarafı gerekir.</p>
+ <p class="mut" style="margin:8px 4px 14px">Takip edilen futbol maçları için arka plan bildirimlerini aç. İlk kez etkinleştirirken tarayıcı izni gerekir.</p>
  <div class="card"><button class="row" onclick="legal('g')">Gizlilik politikası<span>›</span></button><button class="row" onclick="legal('s')">Kullanım şartları<span>›</span></button></div>
  ${S.user||S.fm.length||S.ft.length?'<button class="pill r" onclick="askDel()">Verilerimi sil</button>':''}`}
 function askDel(){modal(`<h1 style="font-size:30px">Veriler silinsin mi?</h1><p style="margin:12px 0">Profil adın, takip ettiğin maç ve takımlar bu cihazdan kalıcı olarak silinir.</p><button class="pill r" onclick="delAll()">Sil</button><button class="pill" onclick="closeM()">Vazgeç</button>`)}
-function delAll(){try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
-Object.assign(window,{setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,askNotif,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
+async function delAll(){try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
+Object.assign(window,{setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,askNotif,stopNotif,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
 const r0=readHash();if(r0){V.splash=false;Object.assign(V,r0);if(V.match){S.sport=sp(V.match.lg);loadSum(V.match.lg,V.match.id)}if(V.team){S.sport=sp(V.team.lg);loadTeam(V.team.lg,V.team.id)}}
 loadTR();
+window.TribunPush?.sync(S,true);
 render();
 if(!V.splash){if(!location.hash)history.replaceState(null,'','#'+hashFor());loadDay()}
 }

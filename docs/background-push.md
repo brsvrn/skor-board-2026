@@ -1,0 +1,8 @@
+# Arka plan gol bildirimi — kurulum ve test
+Bu dal hazır altyapı içerir; canlıya alınmadan önce ayrı bir Redis REST veritabanı, VAPID anahtarları ve harici zamanlayıcı gerekir.
+1. Upstash'ta ayrı ücretsiz Redis oluştur. Vercel projesine UPSTASH_REDIS_REST_URL ve UPSTASH_REDIS_REST_TOKEN ekle. Diğer projelerin veritabanlarını kullanma.
+2. Güvenilir bir ortamda npx web-push@3.6.7 generate-vapid-keys --json komutuyla VAPID çifti üret. VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto: iletişim adresi ya da HTTPS URL) ve en az 32 rastgele bayttan CRON_SECRET ortam değişkenlerini ekle. Anahtar ve tokenları public depoya veya sohbete koyma.
+3. Önizlemede npm test ve gerçek telefonla abonelik testini yap. iOS 16.4+ için ana ekrana kurulması gerekir.
+4. cron-job.org zamanlayıcıdan her dakika POST https://skor-board-2026.vercel.app/api/push?action=tick adresini Authorization: Bearer <CRON_SECRET> başlığıyla çağır. Önce elle doğrula. Vercel Hobby dakika cron'u desteklemez; GitHub Actions gerekmez.
+5. Takipten çıkarma, veri silme, izin iptali, uygulama kapalıyken bildirim, tekrar/düzeltme, bildirim tıklaması, iki cihaz ve birden çok ligle test et. Canlıya geçmeden önce kotaları ve Vercel fonksiyon sürelerini kontrol et.
+Sınırlar: ilk gözlem bildirim göndermez; 15 dakikadan eski skor karşılaştırılmaz. 100 cihaz ve taramada 100 gönderim sınırı var. Teslimat hatası aynı skorun tekrar gönderilmemesi için otomatik tekrar edilmez. 90 gün görülmeyen abonelik silinir. ESPN ve zamanlayıcının gecikmesi nedeniyle anlık teslimat garantisi yok. Anahtarlar henüz tanımlı değil.
