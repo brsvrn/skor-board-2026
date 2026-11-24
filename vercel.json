@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/push.js": {
+      "maxDuration": 60
+    }
+  }
+}

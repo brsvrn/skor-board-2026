@@ -1,7 +1,7 @@
 import webpush from 'web-push';
 import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,isGoal,follows} from '../lib/goal-push.js';
-const P='tribun:push:v1:',SUB=P+'subs',STATE=P+'scores';
-const cfg=()=>({url:process.env.UPSTASH_REDIS_REST_URL,token:process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
+const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores';
+const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
 async function redis(c,...cmd){
  const r=await fetch(c.url,{method:'POST',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},body:JSON.stringify(cmd),signal:AbortSignal.timeout(6000)});
@@ -49,6 +49,10 @@ export default async function handler(req,res){
  if(action==='config'&&req.method==='GET')return reply(res,200,{enabled:ready(c),publicKey:ready(c)?c.pub:null});
  if(!ready(c))return reply(res,503,{error:'push_not_configured'});
  try{
+  if(action==='health'&&req.method==='GET'&&process.env.VERCEL_ENV==='preview'){
+   const pong=await redis(c,'PING');webpush.setVapidDetails(c.subject,c.pub,c.priv);
+   return reply(res,200,{redis:pong==='PONG',vapid:true});
+  }
   if(action==='tick'){
    if(req.method!=='POST')return reply(res,405,{error:'method'});
    if(!equal(req.headers.authorization,'Bearer '+c.cron))return reply(res,401,{error:'unauthorized'});
@@ -60,6 +64,17 @@ export default async function handler(req,res){
   if(!b||!tokenOK(b.token))return reply(res,400,{error:'invalid_token'});
   const id=hash(b.token);
   if(action==='remove'){await redis(c,'HDEL',SUB,id);return reply(res,200,{ok:true})}
+  if(action==='test'){
+   const s=parse(await redis(c,'HGET',SUB,id));
+   if(!s||!subscriptionOK(s.subscription))return reply(res,404,{error:'not_subscribed'});
+   if(!await redis(c,'SET',P+'test:'+id,'1','NX','EX',120))return reply(res,429,{error:'test_rate_limit'});
+   await new Promise(resolve=>setTimeout(resolve,8000));
+   const current=parse(await redis(c,'HGET',SUB,id));
+   if(!current||!subscriptionOK(current.subscription))return reply(res,404,{error:'not_subscribed'});
+   webpush.setVapidDetails(c.subject,c.pub,c.priv);
+   try{await webpush.sendNotification(current.subscription,JSON.stringify({title:'Tribün · Test bildirimi',body:'Bildirim sistemi çalışıyor. Bu gerçek bir gol değildir.',tag:'tribun-test',url:'/#favori'}),{TTL:120,urgency:'high',timeout:5000});return reply(res,200,{ok:true})}
+   catch(e){if(e.statusCode===404||e.statusCode===410)await redis(c,'HDEL',SUB,id);return reply(res,502,{error:'delivery_failed'})}
+  }
   if(action!=='subscribe'||!subscriptionOK(b.subscription))return reply(res,400,{error:'invalid_subscription'});
   const old=parse(await redis(c,'HGET',SUB,id));
   if(!old){

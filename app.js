@@ -369,6 +369,7 @@ function favs(){if(D.state==='idle')setTimeout(loadDay);const ms=D.ev.filter(isF
  ${ms.length?grouped(ms):`<div class="card empty"><p class="mut">Seçili günde takip ettiğin maç yok.</p></div>`}
  ${!(S.notif&&window.TribunPush?.active())?`<button class="pill k" onclick="askNotif()">Gol bildirimlerini aç</button>`:''}`}
 async function askNotif(){try{await window.TribunPush.enable(S);S.notif=1;save();toast('Kapalıyken de gol bildirimleri açık.')}catch(e){toast(e.message||'Bildirim izni alınamadı.')}render()}
+async function testNotif(){toast('Test bildirimi 8 saniye içinde gönderilecek. Şimdi ana ekrana dönebilirsin.');try{await window.TribunPush.test();toast('Test bildirimi gönderildi.')}catch(e){toast(e.message||'Test bildirimi gönderilemedi.')}}
 async function stopNotif(){S.notif=0;save();try{await window.TribunPush.disable();toast('Gol bildirimleri kapalı.')}catch(e){toast('Cihazda kapatıldı; sunucu kaydı silinemedi.')}render()}
 function wc(){return `<button class="back" onclick="go({tab:'std'})">${svg(ic.back)} Puan durumu</button><h1 style="margin:4px 0 4px">Dünya Kupası 2026</h1><p class="mut" style="margin-bottom:12px">Arşiv · Şampiyon İspanya · Final 19 Temmuz 2026, MetLife Stadyumu</p>
  <div class="lgb">${WC.map(m=>`<div class="mr" style="grid-template-columns:minmax(0,1fr) 84px minmax(0,1fr)"><span class="tm">${WCN[m[1]]}</span><div class="mid">${m[3]} - ${m[4]}<small>${m[0]}</small></div><span class="tm">${WCN[m[2]]}</span>${m[5]?`<span class="mut" style="grid-column:1/-1;margin-top:4px">${esc(m[5])}</span>`:''}</div>`).join('')}</div>
@@ -382,13 +383,14 @@ const L={g:['Gizlilik politikası','Profil adın yalnızca bu cihazda saklanır.
 function legal(k){modal(`<h1 style="font-size:30px">${L[k][0]}</h1><p style="margin:12px 0;font-size:15px">${L[k][1]}</p><button class="pill" onclick="closeM()">Kapat</button>`)}
 function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg(ic.back)} Profil</button><h1 style="margin-bottom:14px">Ayarlar</h1>
  <div class="card"><button class="sw ${S.notif&&window.TribunPush?.active()?'on':''}" role="switch" aria-checked="${!!(S.notif&&window.TribunPush?.active())}" onclick="${S.notif&&window.TribunPush?.active()?'stopNotif()':'askNotif()'}">Gol bildirimleri (takip edilen futbol maçları)<i></i></button></div>
+ ${S.notif&&window.TribunPush?.active()?`<button class="pill" onclick="testNotif()">Test bildirimi gönder (8 sn)</button>`:''}
  <div class="card" style="margin-top:10px"><button class="sw ${S.sound?'on':''}" role="switch" aria-checked="${!!S.sound}" onclick="S.sound=S.sound?0:1;save();if(S.sound)beep();render()">Gol sesi (takip edilen maçlar)<i></i></button></div>
  <p class="mut" style="margin:8px 4px 14px">Takip edilen futbol maçları için arka plan bildirimlerini aç. İlk kez etkinleştirirken tarayıcı izni gerekir.</p>
  <div class="card"><button class="row" onclick="legal('g')">Gizlilik politikası<span>›</span></button><button class="row" onclick="legal('s')">Kullanım şartları<span>›</span></button></div>
  ${S.user||S.fm.length||S.ft.length?'<button class="pill r" onclick="askDel()">Verilerimi sil</button>':''}`}
 function askDel(){modal(`<h1 style="font-size:30px">Veriler silinsin mi?</h1><p style="margin:12px 0">Profil adın, takip ettiğin maç ve takımlar bu cihazdan kalıcı olarak silinir.</p><button class="pill r" onclick="delAll()">Sil</button><button class="pill" onclick="closeM()">Vazgeç</button>`)}
 async function delAll(){try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
-Object.assign(window,{setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,askNotif,stopNotif,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
+Object.assign(window,{setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,askNotif,stopNotif,testNotif,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
 const r0=readHash();if(r0){V.splash=false;Object.assign(V,r0);if(V.match){S.sport=sp(V.match.lg);loadSum(V.match.lg,V.match.id)}if(V.team){S.sport=sp(V.team.lg);loadTeam(V.team.lg,V.team.id)}}
 loadTR();
 window.TribunPush?.sync(S,true);

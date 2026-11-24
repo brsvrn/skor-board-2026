@@ -6,3 +6,6 @@ Bu dal hazır altyapı içerir; canlıya alınmadan önce ayrı bir Redis REST v
 4. cron-job.org zamanlayıcıdan her dakika POST https://skor-board-2026.vercel.app/api/push?action=tick adresini Authorization: Bearer <CRON_SECRET> başlığıyla çağır. Önce elle doğrula. Vercel Hobby dakika cron'u desteklemez; GitHub Actions gerekmez.
 5. Takipten çıkarma, veri silme, izin iptali, uygulama kapalıyken bildirim, tekrar/düzeltme, bildirim tıklaması, iki cihaz ve birden çok ligle test et. Canlıya geçmeden önce kotaları ve Vercel fonksiyon sürelerini kontrol et.
 Sınırlar: ilk gözlem bildirim göndermez; 15 dakikadan eski skor karşılaştırılmaz. 100 cihaz ve taramada 100 gönderim sınırı var. Teslimat hatası aynı skorun tekrar gönderilmemesi için otomatik tekrar edilmez. 90 gün görülmeyen abonelik silinir. ESPN ve zamanlayıcının gecikmesi nedeniyle anlık teslimat garantisi yok. Anahtarlar henüz tanımlı değil.
+
+## Vercel Marketplace
+Bağlantı otomatik olarak KV_REST_API_URL ve KV_REST_API_TOKEN sağlıyorsa bu değişkenler de desteklenir. Önizleme ve üretim Redis anahtar alanları ayrıdır. Önizlemede GET /api/push?action=health yalnızca bağlantı ve VAPID yapılandırması kontrolü döndürür. Ayarlar'daki Test bildirimi düğmesi cihazın kendi aboneliğine sekiz saniye sonra sabit test bildirimi yollar; iki dakikada bir kullanılabilir. Zamanlayıcı aktif olmasa da test bildirimi denenebilir.
