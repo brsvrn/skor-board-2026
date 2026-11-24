@@ -1,0 +1,18 @@
+{
+  "name": "Tribün · Canlı Skor",
+  "short_name": "Tribün",
+  "description": "Futbol ve basketbolda canlı skor, istatistik, kadro ve puan durumu.",
+  "lang": "tr",
+  "id": "/",
+  "start_url": "/#ana",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1b3d",
+  "theme_color": "#ececec",
+  "icons": [
+    { "src": "/api/icon?s=192", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/api/icon?s=512", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/api/icon?s=512", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
