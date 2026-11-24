@@ -49,7 +49,8 @@ function elGame(g, lg) {
     h: sd(g.local), a: sd(g.road), venue: (g.venue || {}).name || '' };
 }
 async function elDay(date) {
-  const y = seasonYear(), events = [], ok = [];
+  const dateObj=new Date(date+'T12:00:00Z');
+  const y=dateObj.getUTCMonth()>=6?dateObj.getUTCFullYear():dateObj.getUTCFullYear()-1, events = [], ok = [];
   await Promise.all(Object.entries(COMP).map(async ([lg, c]) => {
     try {
       const j = await elGet(`v2/competitions/${c}/seasons/${c}${y}/games`);
@@ -87,6 +88,43 @@ async function elStand(slug) {
   return [{ name: c === 'E' ? 'EuroLeague' : 'EuroCup', rows }];
 }
 
+
+function elHeader(e){
+ const team=(t,k)=>({homeAway:k,score:t.sc,team:{id:t.id,displayName:t.nm,shortDisplayName:t.nm,abbreviation:t.ab,logos:t.logo?[{href:t.logo}]:[]},linescores:t.ls.map(v=>({value:v,displayValue:String(v)}))});
+ return {competitions:[{date:new Date(e.date).toISOString(),status:{type:{state:e.state,shortDetail:e.short}},competitors:[team(e.h,'home'),team(e.a,'away')]}]};
+}
+const elCols=['MIN','PTS','REB','AST','FG','3PT','FT','STL','BLK','TO','PF','+/-'];
+const minutes=v=>Number.isFinite(Number(v))?Math.floor(Number(v)/60)+':'+String(Math.floor(Number(v)%60)).padStart(2,'0'):'';
+const shots=(s,m,a)=>s[m]!=null&&s[a]!=null?String(s[m])+'-'+String(s[a]):'';
+function elRow(s,total=false){return [total?'':minutes(s.timePlayed),s.points,s.totalRebounds,s.assistances,shots(s,'fieldGoalsMadeTotal','fieldGoalsAttemptedTotal'),shots(s,'fieldGoalsMade3','fieldGoalsAttempted3'),shots(s,'freeThrowsMade','freeThrowsAttempted'),s.steals,s.blocksFavour,s.turnovers,s.foulsCommited,s.plusMinus].map(v=>v??'')}
+function elStats(s){
+ const ratio=(m,a)=>+s[a]>0?Number(s[m])/Number(s[a]):null;
+ const vals={fieldGoalPct:ratio('fieldGoalsMadeTotal','fieldGoalsAttemptedTotal'),threePointFieldGoalPct:ratio('fieldGoalsMade3','fieldGoalsAttempted3'),freeThrowPct:ratio('freeThrowsMade','freeThrowsAttempted'),totalRebounds:s.totalRebounds,offensiveRebounds:s.offensiveRebounds,assists:s.assistances,steals:s.steals,blocks:s.blocksFavour,turnovers:s.turnovers,fouls:s.foulsCommited};
+ return Object.entries(vals).filter(([,v])=>v!=null&&Number.isFinite(Number(v))).map(([name,v])=>({name,displayValue:String(v)}));
+}
+async function elDetail(lg,id){
+ const m=/^el([eu])(20\d{2})(\d{1,4})$/i.exec(id),c=COMP[lg];
+ if(!m||!c||m[1].toUpperCase()!==c)return null;
+ const y=Number(m[2]),n=Number(m[3]);if(y<2000||y>seasonYear()+1||n<1||n>9999)return null;
+ const base='v2/competitions/'+c+'/seasons/'+c+y+'/games';
+ const list=await elGet(base),g=(list.data||[]).find(x=>elGame(x,lg).id===id);
+ if(!g)return null;
+ const e=elGame(g,lg),out={as:1,el:1,header:elHeader(e),boxscore:{players:[],teams:[],gameInfo:{venue:{fullName:e.venue}}},coaches:[],statsAvailable:false};
+ if(e.state==='pre')return out;
+ try{
+  const j=await elGet(base+'/'+n+'/stats');
+  for(const [k,t,side] of [['local',e.h,'home'],['road',e.a,'away']]){
+   const x=j[k]||{},stats=x.total||{};
+   const athletes=(x.players||[]).filter(p=>p.player?.person&&p.stats).map(p=>{const s=p.stats,name=p.player.person.name||p.player.person.alias||p.player.person.jerseyName||'';return {athlete:{id:p.player.person.code,displayName:name},starter:!!(s.startFive||s.startFive2),didNotPlay:Number(s.timePlayed)===0,stats:elRow(s)}});
+   out.boxscore.players.push({team:{id:t.id},statistics:[{names:elCols,athletes,totals:elRow(stats,true)}]});
+   out.boxscore.teams.push({team:{id:t.id},homeAway:side,statistics:elStats(stats)});
+   if(x.coach?.name)out.coaches.push({team:t.nm,name:x.coach.name});
+   if(athletes.length)out.statsAvailable=true;
+  }
+ }catch{out.statsUnavailable=true}
+ return out;
+}
+
 async function call(path, key) {
   const r = await fetch(BASE + path, { headers: { 'x-apisports-key': key } });
   if (!r.ok) throw new Error('upstream ' + r.status);
@@ -112,6 +150,14 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ errors: j.errors, plan: (rs.subscription || {}).plan, active: (rs.subscription || {}).active, requests: rs.requests });
     }
+    if(req.query.match){
+      const lg=String(req.query.league||''),id=String(req.query.match||'');
+      if(!COMP[lg]||!/^el[eu]20\d{2}\d{1,4}$/.test(id))return res.status(400).json({error:'bad_match'});
+      const out=await elDetail(lg,id);
+      if(!out)return res.status(404).json({error:'not_found'});
+      res.setHeader('Cache-Control',out.header.competitions[0].status.type.state==='post'?'s-maxage=900, stale-while-revalidate=3600':'s-maxage=30, stale-while-revalidate=60');
+      return res.status(200).json(out);
+    }
     if (req.query.standings) {
       const slug = String(req.query.standings);
       const d = LEAGUES[slug];
@@ -125,6 +171,7 @@ export default async function handler(req, res) {
       const lg = (lj.response || []).find(l => d.re.test(l.name || '') && !WOMEN.test(l.name || ''));
       if (!lg) { res.setHeader('Cache-Control', 's-maxage=43200'); return res.status(200).json({ groups: [] }); }
       const ss = (lg.seasons || []).find(s => s.current) || (lg.seasons || []).slice(-1)[0] || {};
+      if(ss.coverage?.standings===false)return res.status(200).json({groups:[],reason:'not_covered'});
       const sj = await call(`standings?league=${lg.id}&season=${encodeURIComponent(ss.season)}`, key);
       const groups = (sj.response || []).map(g => ({
         name: ((g[0] || {}).group || {}).name || lg.name,
@@ -132,7 +179,7 @@ export default async function handler(req, res) {
           pct: ((r.games || {}).win || {}).percentage || '', gd: ((r.points || {}).for || 0) - ((r.points || {}).against || 0) })),
       }));
       res.setHeader('Cache-Control', 's-maxage=43200, stale-while-revalidate=3600');
-      return res.status(200).json({ groups });
+      return res.status(200).json({ groups, reason:groups.length?null:'no_data' });
     }
     const date = String(req.query.date || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'bad date' });
@@ -148,7 +195,7 @@ export default async function handler(req, res) {
     const events = [];
     for (const g of (as && as.response) || []) {
       const lg = slugOf(g.league, g.country);
-      if (!lg) continue;
+      if (!lg || (COMP[lg] && el.ok.includes(lg))) continue;
       const st = (g.status || {}).short || 'NS';
       events.push({ id: 'as' + g.id, lg, date: (g.timestamp || 0) * 1000, state: STATE(st), clock: (g.status || {}).timer || '', short: st,
         h: side((g.teams || {}).home, (g.scores || {}).home), a: side((g.teams || {}).away, (g.scores || {}).away), venue: '' });
@@ -158,7 +205,7 @@ export default async function handler(req, res) {
     const live = events.some(e => e.state === 'in');
     const ttl = live ? 60 : date === today ? 600 : date < today ? 21600 : 3600;
     res.setHeader('Cache-Control', `s-maxage=${ttl}, stale-while-revalidate=300`);
-    return res.status(200).json({ events, coverage:{otherEuropean:!key?'nokey':limited||asError==='plan_limit'?'plan_limit':asError?'upstream':'ok',euroleague:el.ok} });
+    return res.status(200).json({ events, coverage:{otherEuropean:limited||asError==='plan_limit'?'plan_limit':!key?'nokey':asError?'upstream':'ok',euroleague:el.ok} });
   } catch (e) {
     res.setHeader('Cache-Control', 's-maxage=120');
     return res.status(e.code==='plan_limit'?422:502).json({ error: e.code==='plan_limit'?'plan_limit':'upstream' });
