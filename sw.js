@@ -1,6 +1,7 @@
 // Tribün servis çalışanı: önce ağ, bağlantı yoksa son kayıtlı sürüm. Canlı veri (/api/) önbelleğe alınmaz.
-const C = 'tribun-v6';
-const SHELL = ['/', '/index.html', '/app.js', '/push.js', '/style.css', '/install.js', '/manifest.webmanifest', '/api/icon?s=192&v=2'];
+importScripts('/history.js');
+const C = 'tribun-v7';
+const SHELL = ['/', '/index.html', '/app.js', '/push.js', '/history.js', '/style.css', '/install.js', '/manifest.webmanifest', '/api/icon?s=192&v=2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== C).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
@@ -13,6 +14,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push',event=>event.waitUntil((async()=>{
  let p={};try{p=event.data.json()}catch{}
  await self.registration.showNotification(p.title||'Tribün',{body:p.body||'Takip ettiğin maçta yeni gelişme.',icon:'/api/icon?s=192&v=2',tag:p.tag||'tribun-goal',silent:false,renotify:true,data:{url:p.url||'/#favori'}});
+ try{await self.TribunHistory.add(p)}catch{}
 })()));
 self.addEventListener('notificationclick',event=>{
  event.notification.close();event.waitUntil((async()=>{

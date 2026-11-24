@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload} from '../lib/goal-push.js';
+import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
 const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
@@ -28,19 +28,22 @@ const putLua="if not redis.call('HGET',KEYS[1],ARGV[1]) and redis.call('HLEN',KE
 async function tick(c){
  if(!await redis(c,'SET',P+'lock','1','NX','EX',55))return {skipped:true};
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
- for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if((s.fm.length||s.ft.length)&&Object.values(noticePrefs(s.prefs)).some(Boolean))subs.push([id,s])}
+ for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if((s.fm.length||s.ft.length)&&hasNotices(s))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
  if(!subs.length){await markTick(c,now,'idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
  const due=leagues.filter(l=>shouldScan(parse(previous[l]),now,changed));
  if(!due.length){await markTick(c,now,'ok');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
  const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
+ const candidates=[];
+ for(let i=0;i<due.length;i++){if(result[i].status!=='fulfilled')continue;const old=parse(previous[due[i]])||{};for(const e of result[i].value){const b=old[e.id],until=e.kickoff-now,people=subs.map(([,s])=>s).filter(s=>follows(s,e));if(e.state==='pre'&&until>0&&until<=90*60000&&!b?.lineupSeen&&people.some(s=>wants(s,e,'lineup'))&&now-(b?.summaryAt||0)>=180000||e.state==='in'&&people.some(s=>wants(s,e,'var')||wants(s,e,'cancel')))candidates.push({e,at:b?.summaryAt||0});}}
+ const summaries=new Map();await Promise.all(candidates.sort((a,b)=>a.at-b.at).slice(0,8).map(async({e})=>{try{const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/'+e.lg+'/summary?event='+e.id,{headers:{accept:'application/json'},signal:AbortSignal.timeout(5000)});if(r.ok){const j=await r.json();summaries.set(e.lg+':'+e.id,readSummary(j,e));}}catch{}}));
  for(let i=0;i<due.length;i++){
   if(result[i].status!=='fulfilled')continue;
   const lg=due[i],old=parse(previous[lg])||{},next={__scanAt:now,__nextPoll:nextPoll(result[i].value,subs.map(([,s])=>s),now)};
   for(const e of result[i].value){
-   const before=old[e.id],observation=matchNotices(before,e,now);next[e.id]=observation.next;
-   for(const n of observation.notices)for(const [id,s] of subs)if(s.changed<=before.at&&follows(s,e)&&noticePrefs(s.prefs)[n.kind])out.push({id,s,e,n});
+   const before=old[e.id],observation=matchNotices(before,e,now),extra=extraNotices(before,e,now,summaries.get(e.lg+':'+e.id));next[e.id]={...observation.next,...extra.next};
+   for(const n of [...observation.notices,...extra.notices])for(const [id,s] of subs)if((['reminder','lineup'].includes(n.kind)||s.changed<=(before?.at||0))&&follows(s,e)&&wants(s,e,n.kind))out.push({id,s,e,n});
   }
   updates.push(lg,JSON.stringify(next));
  }
@@ -100,9 +103,9 @@ export default async function handler(req,res){
    await redis(c,'SET',k,'0','NX','EX',3700);
    if(Number(await redis(c,'INCR',k))>20)return reply(res,429,{error:'rate_limit'});
   }
-  const now=Date.now(),fm=ids(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
-  const same=old&&JSON.stringify([old.fm,old.ft,noticePrefs(old.prefs),old.subscription])===JSON.stringify([fm,ft,prefs,subscription]);
-  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,prefs,seen:now,changed:same?old.changed:now}));
+  const now=Date.now(),fm=ids(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
+  const same=old&&JSON.stringify([old.fm,old.ft,noticePrefs(old.prefs),teamPrefs(old.teamPrefs,old.ft||[]),old.subscription])===JSON.stringify([fm,ft,prefs,teams,subscription]);
+  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,prefs,teamPrefs:teams,seen:now,changed:same?old.changed:now}));
   return reply(res,ok?200:429,ok?{ok:true}:{error:'capacity'});
  }catch{return reply(res,502,{error:'push_service_unavailable'})}
 }
