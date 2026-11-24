@@ -13,9 +13,16 @@ const pairs=a=>Array.isArray(a)?Object.fromEntries(Array.from({length:a.length/2
 const reply=(res,n,x)=>{res.setHeader('Cache-Control','no-store');return res.status(n).json(x)};
 const date=d=>new Date(d).toISOString().slice(0,10).replaceAll('-','');
 async function scores(lg,now){
- const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/'+lg+'/scoreboard?dates='+date(now-86400000)+'-'+date(now+86400000)+'&limit=200',{signal:AbortSignal.timeout(8000)});
- if(!r.ok)throw Error('upstream');const j=await r.json();if(!Array.isArray(j.events))throw Error('upstream');
- return j.events.map(e=>mapEvent(e,lg)).filter(Boolean);
+ // ESPN soccer rejects date ranges; query Istanbul today and yesterday separately.
+ const local=now+3*3600000,days=[date(local),date(local-86400000)];
+ const batches=await Promise.all(days.map(async day=>{
+  const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/'+lg+'/scoreboard?dates='+day+'&limit=200',{headers:{accept:'application/json'},signal:AbortSignal.timeout(8000)});
+  if(!r.ok)throw Error('upstream_'+r.status);
+  const j=await r.json();if(!Array.isArray(j.events))throw Error('upstream_data');
+  return j.events;
+ }));
+ const events=new Map();for(const e of batches.flat()){const x=mapEvent(e,lg);if(x&&!events.has(x.id))events.set(x.id,x)}
+ return [...events.values()];
 }
 const putLua="if not redis.call('HGET',KEYS[1],ARGV[1]) and redis.call('HLEN',KEYS[1])>=100 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);return 1";
 async function tick(c){
