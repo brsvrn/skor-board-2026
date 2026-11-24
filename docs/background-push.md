@@ -12,3 +12,6 @@ Bağlantı otomatik olarak KV_REST_API_URL ve KV_REST_API_TOKEN sağlıyorsa bu 
 
 ## Scheduler setup (production)
 Create a free cron-job.org job, every minute, method POST, URL https://skor-board-2026.vercel.app/api/push?action=tick, header Authorization: Bearer <CRON_SECRET>. Set the same strong secret directly in Vercel Production; never commit it or include it in the URL. Redeploy after editing an environment variable. Public status (no subscription information): GET /api/push?action=status. When no favorites are followed, ticks are idle. Adaptive scan: active/near kickoff leagues every minute; other leagues every 10 minutes, changed favorites invalidate the delay. No cron provider is connected by this code. Check quota and upstream availability; notifications may be delayed or missed.
+
+## Notification preferences
+Five separate football events: goal, start, half, end, red. Existing subscriptions remain goal-only until the device opts in to additional events. Preferences are stored alongside the subscription. Red-card details require a stable player and team ID from ESPN; historical cards are not replayed on first observation. Phase and card baselines suppress repeats; absent or delayed provider data may miss events. Foreground goal sound is separate from Android notification sound.

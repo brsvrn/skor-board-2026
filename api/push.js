@@ -1,5 +1,5 @@
 import webpush from 'web-push';
-import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,isGoal,follows,shouldScan,nextPoll} from '../lib/goal-push.js';
+import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload} from '../lib/goal-push.js';
 const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
@@ -28,7 +28,7 @@ const putLua="if not redis.call('HGET',KEYS[1],ARGV[1]) and redis.call('HLEN',KE
 async function tick(c){
  if(!await redis(c,'SET',P+'lock','1','NX','EX',55))return {skipped:true};
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
- for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(s.fm.length||s.ft.length)subs.push([id,s])}
+ for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if((s.fm.length||s.ft.length)&&Object.values(noticePrefs(s.prefs)).some(Boolean))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
  if(!subs.length){await markTick(c,now,'idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
@@ -39,8 +39,8 @@ async function tick(c){
   if(result[i].status!=='fulfilled')continue;
   const lg=due[i],old=parse(previous[lg])||{},next={__scanAt:now,__nextPoll:nextPoll(result[i].value,subs.map(([,s])=>s),now)};
   for(const e of result[i].value){
-   const before=old[e.id];next[e.id]={home:e.home,away:e.away,state:e.state,at:now};
-   if(isGoal(before,e,now))for(const [id,s] of subs)if(s.changed<=before.at&&follows(s,e))out.push({id,s,e});
+   const before=old[e.id],observation=matchNotices(before,e,now);next[e.id]=observation.next;
+   for(const n of observation.notices)for(const [id,s] of subs)if(s.changed<=before.at&&follows(s,e)&&noticePrefs(s.prefs)[n.kind])out.push({id,s,e,n});
   }
   updates.push(lg,JSON.stringify(next));
  }
@@ -48,8 +48,8 @@ async function tick(c){
  if(updates.length)await redis(c,'HSET',STATE,...updates);
  webpush.setVapidDetails(c.subject,c.pub,c.priv);
  let sent=0,failed=0;const stale=new Set();
- for(let i=0;i<Math.min(out.length,100);i+=20)await Promise.all(out.slice(i,Math.min(i+20,100)).map(async({id,s,e})=>{
-  try{await webpush.sendNotification(s.subscription,JSON.stringify({title:'GOL! '+e.hn+' – '+e.an,body:e.hn+' '+e.home+' - '+e.away+' '+e.an,tag:'goal-'+e.lg+'-'+e.id+'-'+e.home+'-'+e.away,url:'/#mac-'+leagues.indexOf(e.lg)+'-'+e.id}),{TTL:120,urgency:'high',timeout:3500});sent++}
+ for(let i=0;i<Math.min(out.length,100);i+=20)await Promise.all(out.slice(i,Math.min(i+20,100)).map(async({id,s,e,n})=>{
+  try{await webpush.sendNotification(s.subscription,JSON.stringify(noticePayload(e,n)),{TTL:120,urgency:'high',timeout:3500});sent++}
   catch(err){failed++;if(err.statusCode===404||err.statusCode===410)stale.add(id)}
  }));
  if(stale.size)await redis(c,'HDEL',SUB,...stale);
@@ -100,9 +100,9 @@ export default async function handler(req,res){
    await redis(c,'SET',k,'0','NX','EX',3700);
    if(Number(await redis(c,'INCR',k))>20)return reply(res,429,{error:'rate_limit'});
   }
-  const now=Date.now(),fm=ids(b.fm),ft=ids(b.ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
-  const same=old&&JSON.stringify([old.fm,old.ft,old.subscription])===JSON.stringify([fm,ft,subscription]);
-  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,seen:now,changed:same?old.changed:now}));
+  const now=Date.now(),fm=ids(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
+  const same=old&&JSON.stringify([old.fm,old.ft,noticePrefs(old.prefs),old.subscription])===JSON.stringify([fm,ft,prefs,subscription]);
+  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,prefs,seen:now,changed:same?old.changed:now}));
   return reply(res,ok?200:429,ok?{ok:true}:{error:'capacity'});
  }catch{return reply(res,502,{error:'push_service_unavailable'})}
 }
