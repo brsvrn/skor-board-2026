@@ -1,4 +1,5 @@
 import webpush from 'web-push';
+import {groupNoticeTick} from './community.js';
 import {leagues,hash,equal,tokenOK,subscriptionOK,ids,matchIds,dsTeam,dsNotices,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
 import {fixtures as dsFixtures,dsPushEvent,dsDelay} from '../lib/ds-data.js';
 import {BASKET_LEAGUES,basketPrefs,basketKeys,basketFollows,basketWants,mapBasket,mapEuroBasket,basketballNotices,basketDelay,basketPayload} from '../lib/basket-push.js';
@@ -36,10 +37,11 @@ async function euroScores(now){const local=now+3*3600000,d=new Date(local).toISO
 const putLua="if not redis.call('HGET',KEYS[1],ARGV[1]) and redis.call('HLEN',KEYS[1])>=100 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);return 1";
 async function tick(c){
  if(!await redis(c,'SET',P+'lock','1','NX','EX',55))return {skipped:true};
- const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
- for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(((s.fm.length||s.ft.length)&&hasNotices(s))||((s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean)))subs.push([id,s])}
+ const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[],groupSubs=[];
+ for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(s.groupNotices&&s.communityMember)groupSubs.push([id,s]);if(((s.fm.length||s.ft.length)&&hasNotices(s))||((s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean)))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
- if(!subs.length){await markTick(c,now,'idle','idle','idle');return {checked:0,sent:0}}
+ webpush.setVapidDetails(c.subject,c.pub,c.priv);let groups={sent:0,failed:0,checked:0};try{groups=await groupNoticeTick(groupSubs,(s,payload)=>webpush.sendNotification(s.subscription,JSON.stringify(payload),{TTL:86400,urgency:'normal',timeout:3500}),now)}catch{groups={error:'group_notice_scan'}}
+ if(!subs.length){await markTick(c,now,'idle','idle','idle');return {checked:0,sent:groups.sent||0,groups}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
  const espnSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id))));
  const dsSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam)));
@@ -47,7 +49,7 @@ async function tick(c){
  const dsOld=parse(previous['ds-all'])||{},dsDue=dsSubs.length&&process.env.DATASPORTS_API_KEY&&shouldScan(dsOld,now,Math.max(...dsSubs.map(([,s])=>Number(s.changed)||0)));
  const bsubs=subs.filter(([,s])=>(s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean));
  const bDue=BASKET_LEAGUES.filter(l=>bsubs.some(([,s])=>[...(s.bfm||[]),...(s.bft||[])].some(k=>k.startsWith(l+':')))&&shouldScan(parse(previous['basket:'+l]),now,Math.max(...bsubs.map(([,s])=>Number(s.changed)||0))));
- if(!due.length&&!dsDue&&!bDue.length){await markTick(c,now,'ok',dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle',bsubs.length?'cached':'idle');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ if(!due.length&&!dsDue&&!bDue.length){await markTick(c,now,'ok',dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle',bsubs.length?'cached':'idle');return {checked:subs.length,leagues:0,sent:groups.sent||0,groups,adaptive:true}}
  const basketWork=Promise.allSettled(bDue.filter(l=>!l.startsWith('as-')).map(async l=>({lg:l,events:await basketScores(l,now)})));
  const euroWork=bDue.some(l=>l.startsWith('as-'))?euroScores(now).catch(()=>null):Promise.resolve(null);
  const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
@@ -96,7 +98,7 @@ async function tick(c){
  if(stale.size)await redis(c,'HDEL',SUB,...stale);
  const good=result.filter(x=>x.status==='fulfilled').length;
  await markTick(c,now,good===due.length?(dsState==='budget'||dsState==='unavailable'||basketState==='partial'||basketState==='unavailable'?'partial':'ok'):good?'partial':'upstream_error',dsState,basketState);
- return {checked:subs.length,leagues:good,dsState,basketState,sent,failed,limited:Math.max(0,out.length-100)};
+ return {checked:subs.length,leagues:good,dsState,basketState,sent:sent+(groups.sent||0),failed:failed+(groups.failed||0),groups,limited:Math.max(0,out.length-100)};
 }
 export default async function handler(req,res){
  const c=cfg(),action=String(req.query.action||'config');
@@ -141,9 +143,10 @@ export default async function handler(req,res){
    await redis(c,'SET',k,'0','NX','EX',3700);
    if(Number(await redis(c,'INCR',k))>20)return reply(res,429,{error:'rate_limit'});
   }
+  const communityMember=tokenOK(b.communityToken)?hash(b.communityToken):null,groupNotices=b.groupNotices===true&&!!communityMember;
   const now=Date.now(),fm=matchIds(b.fm),ft=ids(b.ft),bfm=basketKeys(b.bfm),bft=basketKeys(b.bft),bprefs=basketPrefs(b.bprefs),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
   const same=old&&JSON.stringify([old.fm,old.ft,old.bfm||[],old.bft||[],basketPrefs(old.bprefs),noticePrefs(old.prefs),teamPrefs(old.teamPrefs,old.ft||[]),old.subscription])===JSON.stringify([fm,ft,bfm,bft,bprefs,prefs,teams,subscription]);
-  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,bfm,bft,bprefs,prefs,teamPrefs:teams,seen:now,changed:same?old.changed:now}));
+  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,bfm,bft,bprefs,prefs,teamPrefs:teams,communityMember,groupNotices,seen:now,changed:same?old.changed:now}));
   return reply(res,ok?200:429,ok?{ok:true}:{error:'capacity'});
  }catch{return reply(res,502,{error:'push_service_unavailable'})}
 }

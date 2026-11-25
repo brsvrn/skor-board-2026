@@ -6,6 +6,7 @@ const hash=s=>createHash('sha256').update(String(s)).digest('hex');
 const token=x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x);
 const code=x=>typeof x==='string'&&/^[a-f0-9]{24}$/.test(x);
 const days=30*86400;
+const NOTICE_QUEUE=P+'notice-due';
 const str=x=>typeof x==='string'?x.trim().slice(0,32):'';
 const parse=x=>{try{return JSON.parse(x)}catch{return null}};
 const validMatch=(lg,id)=>typeof id==='string'&&(leagues.includes(lg)&&/^\d{1,20}$/.test(id)||['ds-tr1','ds-tr2','ds-tr3','ds-cup'].includes(lg)&&/^ds[1-9]\d{0,11}$/.test(id));
@@ -28,13 +29,53 @@ async function fixture(lg,id,strict=false){
  await kv('SET',key,JSON.stringify(e),'EX',e.final?3600:60);return e;
 }
 const joinLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=40 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
-const addLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=8 then return 0 end;redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
+const addLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==1 then return 2 end; if redis.call('HLEN',KEYS[1])>=8 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
 // Index writes before recording user data, so deletion is retryable even after a partial network failure.
 async function indexMember(key,value,limit){
  if(!await kv('SISMEMBER',key,value)&&Number(await kv('SCARD',key))>=limit)throw Error('full');
  await kv('SADD',key,value);await kv('EXPIRE',key,days);
 }
 const voteLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=1000 then return 0 end;redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
+
+async function queueGroupMatch(group, e){
+ const mk=e.lg+':'+e.id,now=Date.now();
+ // Queue members contain only a group code, provider match ID and notification kind.
+ await kv('ZADD',NOTICE_QUEUE,'NX',now,group+'|'+mk+'|added');
+ await kv('ZADD',NOTICE_QUEUE,'NX',Math.max(now,e.kickoff+95*60000),group+'|'+mk+'|final');
+}
+export async function groupNoticeTick(subscriptions,send,now=Date.now()){
+ const due=await kv('ZRANGEBYSCORE',NOTICE_QUEUE,0,now,'LIMIT',0,8)||[];
+ let sent=0,failed=0;
+ for(const item of due){
+  const [gc,lg,id,kind]=String(item).split('|').flatMap((s,i)=>i===1?s.split(':'):[s]);
+  if(!code(gc)||!validMatch(lg,id)||!['added','final'].includes(kind)){await kv('ZREM',NOTICE_QUEUE,item);continue}
+  const key=P+'group:'+gc,g=await get(key),mk=lg+':'+id;
+  const match=parse(await kv('HGET',key+':matches',mk));
+  if(!g||!match||now>g.ends+2*86400000){await kv('ZREM',NOTICE_QUEUE,item);continue}
+  let e=match;
+  if(kind==='final'){
+   try{e=await fixture(lg,id)}catch{}
+   if(!e?.final){await kv('ZADD',NOTICE_QUEUE,now+10*60000,item);continue}
+  }else if(now>=match.kickoff){await kv('ZREM',NOTICE_QUEUE,item);continue}
+  const members=pairs(await kv('HGETALL',key+':members'));
+  const preds=kind==='final'?pairs(await kv('HGETALL',key+':pred:'+mk)):{};
+  let retry=false;
+  const targets=subscriptions.filter(([,s])=>s.groupNotices===true&&typeof s.communityMember==='string'&&Object.hasOwn(members,s.communityMember));
+  for(let i=0;i<targets.length;i+=10){
+   const batch=targets.slice(i,i+10);
+   await Promise.all(batch.map(async([sid,s])=>{
+    const done=P+'notice-sent:'+hash(item+':'+sid);
+    if(await kv('GET',done))return;
+    const p=parse(preds[s.communityMember]),points=p&&scoreOK(p.h)&&scoreOK(p.a)?scorePoints(e.h,e.a,p.h,p.a):null;
+    const payload={title:g.name+' · '+(kind==='added'?'Yeni maç eklendi':'Tahmin sonucu'),body:kind==='added'?match.home+' – '+match.away+' · Tahminini yap!':e.home+' '+e.h+' – '+e.a+' '+e.away+(points===null?' · Tahmin yapmadın.':' · '+points+' puan kazandın.'),tag:'tribun-group-'+gc+'-'+mk+'-'+kind,url:'/#davet-'+gc};
+    try{await send(s,payload);await kv('SET',done,'1','EX',days);sent++}catch(err){failed++;if(err.statusCode===404||err.statusCode===410){await kv('SET',done,'1','EX',days)}else retry=true}
+   }))
+  }
+  if(retry)await kv('ZADD',NOTICE_QUEUE,now+5*60000,item);else await kv('ZREM',NOTICE_QUEUE,item);
+ }
+ return {sent,failed,checked:due.length};
+}
+
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
  let origin=false;try{const u=new URL(req.headers.origin);origin=u.protocol==='https:'&&u.host===req.headers.host}catch{}
@@ -64,7 +105,8 @@ export default async function handler(req,res){
  if(b.action==='create'){
   const name=str(b.name),groupName=str(b.groupName);if(!name||!groupName)return res.status(400).json({error:'name'});
   const id=randomBytes(12).toString('hex'),key=P+'group:'+id,group={name:groupName,owner:member,created:Date.now(),ends:Date.now()+7*86400000};
-  await indexMember(memberKey+':groups',id,20);await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);return res.json({code:id,name:groupName,ends:group.ends});
+  let initial=null;if(b.match!==undefined){const m=b.match;if(!m||!validMatch(m.lg,m.id)||!scoreOK(m.h)||!scoreOK(m.a))return res.status(400).json({error:'prediction'});const e=await fixture(m.lg,m.id,true);if(!e.pre||Date.now()>=e.kickoff||e.kickoff>group.ends)return res.status(409).json({error:'closed'});initial={e,h:m.h,a:m.a}}
+  await indexMember(memberKey+':groups',id,20);await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);if(initial){const {e,h,a}=initial,mk=e.lg+':'+e.id;await kv('EVAL',addLua,1,key+':matches',mk,JSON.stringify({lg:e.lg,id:e.id,home:e.home,away:e.away,kickoff:e.kickoff}),days);await kv('HSET',key+':pred:'+mk,member,JSON.stringify({h,a}));await kv('EXPIRE',key+':pred:'+mk,days);await queueGroupMatch(id,e)}return res.json({code:id,name:groupName,ends:group.ends});
  }
  if(!code(b.code))return res.status(400).json({error:'code'});
  const key=P+'group:'+b.code,g=await get(key);if(!g)return res.status(404).json({error:'not_found'});
@@ -74,7 +116,7 @@ export default async function handler(req,res){
   if(Date.now()>=g.ends||!validMatch(b.lg,b.id))return res.status(400).json({error:'closed'});
   const mk=b.lg+':'+b.id,e=await fixture(b.lg,b.id,true);
   if(!e.pre||Date.now()>=e.kickoff||e.kickoff>g.ends)return res.status(409).json({error:'closed'});
-  if(b.action==='add'){if(g.owner!==member)return res.status(403).json({error:'owner'});if(!await kv('EVAL',addLua,1,key+':matches',mk,JSON.stringify({lg:e.lg,id:e.id,home:e.home,away:e.away,kickoff:e.kickoff}),days))return res.status(409).json({error:'full'});return res.json({ok:true})}
+  if(b.action==='add'){const added=await kv('EVAL',addLua,1,key+':matches',mk,JSON.stringify({lg:e.lg,id:e.id,home:e.home,away:e.away,kickoff:e.kickoff}),days);if(!added)return res.status(409).json({error:'full'});if(Number(added)===1)await queueGroupMatch(b.code,e);return res.json({ok:true,already:Number(added)===2})}
   if(!scoreOK(b.h)||!scoreOK(b.a)||!await kv('HEXISTS',key+':matches',mk))return res.status(400).json({error:'prediction'});
   await indexMember(memberKey+':groups',b.code,20);await kv('HSET',key+':pred:'+mk,member,JSON.stringify({h:b.h,a:b.a}));await kv('EXPIRE',key+':pred:'+mk,days);return res.json({ok:true});
  }
