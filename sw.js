@@ -1,7 +1,7 @@
 // Tribün servis çalışanı: önce ağ, bağlantı yoksa son kayıtlı sürüm. Canlı veri (/api/) önbelleğe alınmaz.
 importScripts('/history.js');
-const C = 'tribun-v21';
-const SHELL = ['/', '/index.html', '/app.js', '/projection.js', '/push.js', '/history.js', '/style.css', '/install.js', '/manifest.webmanifest', '/api/icon?s=192&v=2'];
+const C = 'tribun-v22';
+const SHELL = ['/', '/index.html', '/app.js', '/projection.js', '/push.js', '/history.js', '/style.css', '/install.js', '/manifest.webmanifest', '/icons/splash-balls.svg', '/api/icon?s=192&v=2'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(C).then(c => c.addAll(SHELL)).catch(() => {})); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('tribun-') && k !== C).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
