@@ -8,6 +8,7 @@ Base: 20d43fa821a42103ed60969bfb63e4d94f147dd6. User reference: slate/blue-grey/
 - Local football score predictions: no wagers, 3 exact/1 result points; settlement when provider reports a recognized final status and relevant date loads. No account, online leaderboard or multiplayer.
 - Data-based summary (not AI), quarter cumulative basketball chart; football important-event distribution explicitly not attack momentum.
 - Foreground Turkish goal narration (platform dependent). Existing notifications and APIs retained.
+- Skeleton loading, pull-to-refresh on home, and foreground score pulse for followed goals added.
 - Existing lower-league and official integrations remain unchanged; verify actual coverage and correctness.
 
 ## Remaining / blocked by data or backend
@@ -15,6 +16,6 @@ Base: 20d43fa821a42103ed60969bfb63e4d94f147dd6. User reference: slate/blue-grey/
 - Genuine multiuser polls, friends/leaderboards require authenticated accounts, server validation/anti-abuse and durable storage.
 - AI summaries require server-side model and key, validated source-grounded prompts; currently deterministic summary only.
 - Live projected standings need league tiebreaker rules and complete live fixtures. Smart push events and background speech require provider/OS support; background push sound not equivalent to foreground speech.
-- Full interface redesign of all remaining profiles, detailed animations and pull-to-refresh still open.
+- Full interface redesign of all remaining profiles, full visual redesign across all remaining profiles still open.
 - Verify real lower-league/Bursaspor and referee data, real push delivery, two-device sync, supported browsers.
 - No production merge or comprehensive acceptance tests until all requested development is ready.
