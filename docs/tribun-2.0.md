@@ -19,3 +19,6 @@ Base: 20d43fa821a42103ed60969bfb63e4d94f147dd6. User reference: slate/blue-grey/
 - Full interface redesign of all remaining profiles, full visual redesign across all remaining profiles still open.
 - Verify real lower-league/Bursaspor and referee data, real push delivery, two-device sync, supported browsers.
 - No production merge or comprehensive acceptance tests until all requested development is ready.
+
+## Follow-up candidate
+Provider-backed analytics UI and endpoints: documented DataSportsAPI shots/xG, momentum, ratings and player heatmaps. Free/Starter may return restricted; no simulated values. Provider removed AI commentary on 2026-11-21; optional Gemini server integration uses TRIBUN_AI_ENABLED=1, TRIBUN_GEMINI_API_KEY, TRIBUN_GEMINI_MODEL; no paid credentials were added. Private seven-day invite groups (40 members, 8 fixtures) and per-device outcome polls use Redis; scoring verifies source results. Conditional in-memory pre-match standings projection; no official tiebreak claim. Goal notification highlights for equalizer/late where minute exists. Real environment acceptance remains outstanding.

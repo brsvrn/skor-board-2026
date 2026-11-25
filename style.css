@@ -267,3 +267,5 @@ nav .on .t2-navlabel{color:var(--t2-accent)}
 .t3-pitch{display:block;width:100%;max-height:290px;margin:12px 0;border-radius:14px;background:var(--card)}.entity-head{background:var(--card);padding:18px;border:1px solid var(--line);border-radius:20px}.metric-grid div{border-radius:16px}.discover-row{padding:12px 14px}.hero{border:1px solid var(--line)}.tabs{scroll-snap-type:x proximity}.tabs button{scroll-snap-align:start}.news-item{border:1px solid var(--line)}
 
 .t3-poll{position:relative;overflow:hidden;width:100%;padding:14px;margin:7px 0;border:1px solid var(--line);border-radius:12px;background:var(--card)}.t3-poll i{position:absolute;left:0;bottom:0;height:3px;background:var(--t2-accent)}.modal label{display:block;margin:10px 0}.modal label input{display:block;width:100%;margin-top:6px}
+
+.t3-live{padding:12px;margin:12px 0;border:1px solid var(--line)}.t3-live p{margin:5px 0 10px}.t3-live h2{font-family:Inter,system-ui,sans-serif;font-size:13px;text-align:left;text-transform:none}.t3-live table{margin-bottom:10px}

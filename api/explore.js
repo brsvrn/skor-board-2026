@@ -1,5 +1,6 @@
 import {cached,valid} from '../lib/ds-data.js';
 import {advanced} from '../lib/advanced.js';
+import {aiAnalysis} from '../lib/ai-analysis.js';
 const ESPN='https://site.api.espn.com/apis/site/v2/sports/';
 const LEAGUES={soccer:['tur.1','uefa.champions','uefa.europa','uefa.europa.conf','eng.1','esp.1','ita.1','ger.1','fra.1','por.1','ned.1','bel.1','sco.1','eng.2','ksa.1','usa.1','bra.1','arg.1','conmebol.libertadores'],basketball:['nba','wnba','mens-college-basketball']};
 const arr=x=>Array.isArray(x)?x:[];
@@ -17,6 +18,7 @@ export default async function handler(req,res){
  if(a==='news'&&okLeague){const j=await espn(sport,lg,'news?limit=15');return res.json({items:arr(j.articles).map(x=>({title:str(x.headline),description:str(x.description),published:str(x.published),url:https(x.links?.web?.href),source:'ESPN'})).filter(x=>x.title&&x.url)})}
  if(a==='espnTeams'&&okLeague){const j=await espn(sport,lg,'teams?limit=100');return res.json({items:arr(j.sports).flatMap(s=>arr(s.leagues)).flatMap(l=>arr(l.teams)).map(x=>({id:String(x.team?.id||''),name:str(x.team?.displayName),image:https(x.team?.logos?.[0]?.href),league:lg})).filter(x=>valid(x.id)&&x.name)})}
  if(a==='injuries'&&okLeague&&valid(id)){const j=await espn(sport,lg,'teams/'+id+'/injuries');const groups=arr(j.injuries);return res.json({items:groups.flatMap(x=>Array.isArray(x.injuries)?x.injuries:[x]).map(x=>({name:str(x.athlete?.displayName),status:str(x.status),description:str(x.shortComment||x.longComment),date:str(x.date)})).filter(x=>x.name)})}
+ if(a==='aiAnalysis'&&sport==='soccer'&&okLeague&&valid(id))return res.json(await aiAnalysis(lg,id));
  if(!process.env.DATASPORTS_API_KEY)return res.status(503).json({error:'not_configured'});
  if(a==='advanced'&&sport==='soccer'&&(okLeague||['ds-tr1','ds-tr2','ds-tr3','ds-cup'].includes(lg)))return res.json(await advanced(lg,id,String(req.query.kind||''),String(req.query.player||'')));
  if(a==='search'){const q=String(req.query.q||'').trim(),type=String(req.query.type||'');if(q.length<2||q.length>60||/[\x00-\x1f]/.test(q)||!['','team','player','referee','league'].includes(type))return res.status(400).json({error:'query'});
@@ -32,5 +34,5 @@ export default async function handler(req,res){
  if(a==='league'){const x=await cached('leagues/'+id,86400);return res.json({profile:{id,name:str(x.name),image:https(x.image),sport:str(x.sport),country:str(x.country?.name),category:str(x.category)}})}
  if(a==='lineups'){const data=await cached('fixtures/'+id+'/lineups',900);return res.json(lineups(data))}
  return res.status(400).json({error:'bad_request'});
- }catch(e){const code=['budget','restricted','no_data','busy'].includes(e.message)?e.message:e.message==='bad_request'?'bad_request':'upstream';return res.status(code==='budget'?429:code==='no_data'?404:code==='bad_request'?400:code==='restricted'?403:503).json({error:code})}
+ }catch(e){const code=['budget','restricted','no_data','busy','ai_not_configured'].includes(e.message)?e.message:e.message==='bad_request'?'bad_request':'upstream';return res.status(code==='budget'?429:code==='no_data'?404:code==='bad_request'?400:code==='restricted'?403:503).json({error:code})}
 }
