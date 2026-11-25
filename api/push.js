@@ -39,7 +39,7 @@ async function tick(c){
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
  for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(((s.fm.length||s.ft.length)&&hasNotices(s))||((s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean)))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
- if(!subs.length){await markTick(c,now,'idle','idle');return {checked:0,sent:0}}
+ if(!subs.length){await markTick(c,now,'idle','idle','idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
  const espnSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id))));
  const dsSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam)));

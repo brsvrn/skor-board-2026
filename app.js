@@ -16,9 +16,11 @@ const WC=[['Final','ESP','ARG',1,0,'Uzatmalarda · Ferran Torres 106\''],['Üç�
 const WCN={ESP:'İspanya',ARG:'Arjantin',FRA:'Fransa',ENG:'İngiltere',MAR:'Fas',BEL:'Belçika',NOR:'Norveç',SUI:'İsviçre'};
 const SCORERS=[['Kylian Mbappé','Fransa',10],['Lionel Messi','Arjantin',8],['Jude Bellingham','İngiltere',7],['Harry Kane','İngiltere',6],['Ousmane Dembélé','Fransa',6]];
 const S=(()=>{try{return JSON.parse(localStorage.getItem('tribun')||localStorage.getItem('mm2')||'null')}catch(e){return null}})()||{};
-S.fm=S.fm||[];S.ft=S.ft||[];S.ftl=S.ftl||{};S.fml=S.fml||{};S.sort=S.sort||'lig';S.sport=S.sport||'soccer';S.slg=S.slg&&LGN[S.slg]?S.slg:'tur.1';S.slgB=S.slgB||'nba';
+S.fm=S.fm||[];S.ft=S.ft||[];S.ftl=S.ftl||{};S.fml=S.fml||{};S.bfm=Array.isArray(S.bfm)?S.bfm:[];S.bft=Array.isArray(S.bft)?S.bft:[];S.bftn=S.bftn||{};S.sort=S.sort||'lig';S.sport=S.sport||'soccer';S.slg=S.slg&&LGN[S.slg]?S.slg:'tur.1';S.slgB=S.slgB||'nba';
 const NOTICE_OPTIONS=[['goal','Gol'],['start','Maç başlangıcı'],['half','Devre arası'],['end','Maç sonu'],['red','Kırmızı kart'],['reminder','Maçtan 15 dk önce'],['lineup','İlk 11’ler'],['var','VAR olayları'],['cancel','Gol iptali / skor düzeltmesi']];
 const noticeEnabled=k=>typeof S.noticePrefs?.[k]==='boolean'?S.noticePrefs[k]:k==='goal';
+const basketKey=(lg,id)=>lg+':'+id;
+function migrateBasket(){let changed=false;for(const id of [...S.ft])if(LGN[S.ftl[id]]?.sport==='basketball'){const k=basketKey(S.ftl[id],id);if(!S.bft.includes(k))S.bft.push(k);S.bftn[k]=S.ftn?.[id]||id;S.ft=S.ft.filter(x=>x!==id);delete S.ftl[id];if(S.ftn)delete S.ftn[id];changed=true}for(const id of [...S.fm])if(LGN[S.fml[id]]?.sport==='basketball'){const k=basketKey(S.fml[id],id);if(!S.bfm.includes(k))S.bfm.push(k);S.fm=S.fm.filter(x=>x!==id);delete S.fml[id];changed=true}return changed}
 const save=()=>{try{localStorage.setItem('tribun',JSON.stringify(S))}catch(e){}window.TribunPush?.sync(S)};
 let V={stab:'stand',lcat:0,tab:'home',off:0,filt:'all',match:null,team:null,ttab:'fik',dtab:'ozet',scat:'gen',kside:'home',grp:0,q:'',splash:!S.seen};
 const D={lead:{},ev:[],state:'idle',at:null,timer:null,sum:{},stand:{},prev:{},tn:{},tr:new Set(),tm:{}};
@@ -107,7 +109,7 @@ async function loadDay(){
  if(S.sport==='basketball')jobs.push(loadAS(key.slice(0,8)));else jobs.push(loadDS(key.slice(0,8)));
  const res=await Promise.all(jobs);
  if(D.key!==key)return;
- if(res.every(r=>r===null)){D.state='off'}else{const ev=res.flat().filter(Boolean);for(const e of ev)if(S.fm.includes(e.id)&&!S.fml[e.id])S.fml[e.id]=e.lg;window.TribunPush?.sync(S);notifyGoals(ev);D.ev=ev;D.state='ok';D.at=new Date()}
+ if(res.every(r=>r===null)){D.state='off'}else{const ev=res.flat().filter(Boolean);let migrated=false;for(const e of ev)if(S.fm.includes(e.id)&&!S.fml[e.id]){S.fml[e.id]=e.lg;migrated=true}if(migrateBasket()||migrated)save();else window.TribunPush?.sync(S);notifyGoals(ev);D.ev=ev;D.state='ok';D.at=new Date()}
  if(V.match==null&&!V.team)refresh();syncPoll()}
 function refresh(){const a=document.activeElement;if(V.tab==='home'&&!V.match&&!V.team&&a&&a.id==='q'&&$('#lst')){$('#lst').innerHTML=listBody()}else render()}
 
@@ -170,8 +172,9 @@ function syncPoll(){
  if(V.match){const e=D.ev.find(x=>x.id===V.match.id);if(e&&e.state==='in')D.timer=setTimeout(()=>{loadSum(V.match.lg,V.match.id);loadDay()},30000);return}
  if(V.tab==='home'||V.tab==='fav')D.timer=setTimeout(loadDay,live?30000:120000)}
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){window.TribunPush?.sync(S,true);if(D.state!=='off')loadDay()}else syncPoll()});
-const followsTeam=(id,lg)=>S.ft.includes(id)&&(!S.ftl[id]||(isB(lg)?S.ftl[id]===lg:!isB(S.ftl[id])));
-const isFav=e=>S.fm.includes(e.id)&&(!S.fml[e.id]||S.fml[e.id]===e.lg)||followsTeam(e.h.id,e.lg)||followsTeam(e.a.id,e.lg);
+const followsTeam=(id,lg)=>isB(lg)?S.bft.includes(basketKey(lg,id)):S.ft.includes(id);
+const followsMatch=(id,lg)=>isB(lg)?S.bfm.includes(basketKey(lg,id)):S.fm.includes(id)&&(!S.fml[id]||S.fml[id]===lg);
+const isFav=e=>followsMatch(e.id,e.lg)||followsTeam(e.h.id,e.lg)||followsTeam(e.a.id,e.lg);
 
 const POS_TR={goalkeeper:'Kaleci',defender:'Defans',midfielder:'Orta saha',forward:'Forvet',guard:'Guard',center:'Pivot'};
 const STATUS_TR={out:'Forma giyemiyor',dayToDay:'Günlük takip',doubtful:'Şüpheli',injury:'Sakatlık',suspension:'Ceza',suspended:'Cezalı',other:'Diğer'};
@@ -190,7 +193,7 @@ function localSearch(q){
  for(const [lg,groups] of Object.entries(D.stand))if(Array.isArray(groups))for(const g of groups)for(const t of g.rows||[])all.push({id:t.id,name:t.nm,league:lg,image:t.logo});
  for(const e of D.ev)for(const t of [e.h,e.a])all.push({id:t.id,name:t.nm,league:e.lg,image:t.logo});
  for(const [lg,items] of Object.entries(X.dir))for(const t of items)all.push(t);
- for(const id of S.ft)if(S.ftl[id])all.push({id,name:S.ftn?.[id],league:S.ftl[id]});
+ for(const id of S.ft)if(S.ftl[id])all.push({id,name:S.ftn?.[id],league:S.ftl[id]});for(const k of S.bft){const i=k.indexOf(':');all.push({id:k.slice(i+1),name:S.bftn[k],league:k.slice(0,i)})}
  const seen=new Set();for(const t of all){if(!t.id||!LGN[t.league]||!normSearch(t.name).includes(n)||seen.has(t.league+':'+t.id))continue;seen.add(t.league+':'+t.id);result.push({...t,type:'localTeam'})}
  return result.slice(0,30);
 }
@@ -253,10 +256,10 @@ function leagueDirectory(lg){
 }
 async function loadDirectory(lg){if(!LGN[lg]||isAS(lg))return;try{if(isDS(lg)){await loadStand(lg);return}const j=await explore({action:'espnTeams',league:lg,sport:sp(lg)});X.dir[lg]=j.items||[];render();if(!X.dir[lg].length)toast('Takım listesi bulunamadı.')}catch(e){toast(errorLabel(e.message))}}
 function newsPage(){
- const lg=V.newsLg||'eng.1',sport=sp(lg),data=X.news[lg];
+ const lg=V.newsLg||'eng.1',sport=sp(lg),data=X.news[lg];if(!data){X.news[lg]={loading:true};setTimeout(()=>loadNews(lg),0)}
  const choices=LEAGUES.filter(l=>!isDS(l[0])&&!isAS(l[0]));
  const rows=data?.items?.map(n=>'<a class="news-item card" href="'+esc(safeExternal(n.url))+'" target="_blank" rel="noopener noreferrer"><small class="mut">'+esc(n.source)+' · '+esc(n.published?new Date(n.published).toLocaleDateString('tr-TR'):'')+'</small><b>'+esc(n.title)+'</b><p>'+esc(n.description)+'</p><small class="mut">Kaynağında oku ↗</small></a>').join('');
- return topBar('Haberler')+'<h1>Spor haberleri</h1><div class="chips">'+[['news','Haberler'],['transfers','Transferler']].map(([k,t])=>'<button class="'+(V.tab===k?'on':'')+'" onclick="go({tab:\''+k+'\'})">'+t+'</button>').join('')+'</div><select aria-label="Lig" onchange="selectNews(this.value)">'+choices.map(l=>'<option value="'+l[0]+'" '+(l[0]===lg?'selected':'')+'>'+esc(l[1])+'</option>').join('')+'</select><button class="pill" onclick="loadNews(\''+lg+'\')">Haberleri yükle / yenile</button><p class="mut" style="margin:8px">ESPN · Başlıklar kaynak dilinde olabilir.</p>'+(data?.error?emptyBox(errorLabel(data.error)):rows||emptyBox('Haberleri yüklemek için düğmeye dokun.'));
+ return topBar('Haberler')+'<h1>Spor haberleri</h1><div class="chips">'+[['news','Haberler'],['transfers','Transferler']].map(([k,t])=>'<button class="'+(V.tab===k?'on':'')+'" onclick="go({tab:\''+k+'\'})">'+t+'</button>').join('')+'</div><select aria-label="Lig" onchange="selectNews(this.value)">'+choices.map(l=>'<option value="'+l[0]+'" '+(l[0]===lg?'selected':'')+'>'+esc(l[1])+'</option>').join('')+'</select><button class="pill" onclick="loadNews(\''+lg+'\')">Haberleri yükle / yenile</button><p class="mut" style="margin:8px">ESPN · Başlıklar kaynak dilinde olabilir.</p>'+(data?.error?emptyBox(errorLabel(data.error)):data?.loading||!data?emptyBox('Haberler yükleniyor…'):rows||emptyBox('Haber bulunamadı.'));
 }
 function selectNews(lg){if(LGN[lg]&&!isAS(lg)&&!isDS(lg)){V.newsLg=lg;render();loadNews(lg)}}
 async function loadNews(lg){try{X.news[lg]=await explore({action:'news',league:lg,sport:sp(lg)})}catch(e){X.news[lg]={error:e.message}}if(V.tab==='news')render()}
@@ -304,11 +307,11 @@ async function copySync(){const code=$('#syncCode')?.value||S.syncCode;if(!/^[a-
 async function syncFavorites(action,explicitCode){
  const code=explicitCode||$('#syncCode')?.value.trim()||S.syncCode;if(!/^[a-f0-9]{64}$/.test(code||''))return toast('Geçerli kod gerekli.');
  if(action==='delete'&&!explicitCode&&!confirm('Bulut kaydı kalıcı olarak silinsin mi?'))return;
- const f={fm:S.fm,ft:S.ft,fml:S.fml||{},ftl:S.ftl,ftn:S.ftn||{}};
+ const f={fm:S.fm,ft:S.ft,fml:S.fml||{},ftl:S.ftl,ftn:S.ftn||{},bfm:S.bfm,bft:S.bft,bftn:S.bftn};
  const r=await fetch('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,code,favorites:f})});
  if(!r.ok)throw Error(r.status===404?'Kayıt bulunamadı.':'Eşitleme başarısız.');
  const j=await r.json();
- if(action==='load'){const x=j.favorites||{};S.fm=[...new Set([...S.fm,...(x.fm||[])])].slice(0,200);S.ft=[...new Set([...S.ft,...(x.ft||[])])].slice(0,200);for(const k of ['fml','ftl','ftn'])S[k]={...(x[k]||{}),...(S[k]||{})}}
+ if(action==='load'){const x=j.favorites||{};S.fm=[...new Set([...S.fm,...(x.fm||[])])].slice(0,200);S.ft=[...new Set([...S.ft,...(x.ft||[])])].slice(0,200);for(const k of ['fml','ftl','ftn','bftn'])S[k]={...(x[k]||{}),...(S[k]||{})};for(const k of ['bfm','bft'])S[k]=[...new Set([...S[k],...(x[k]||[])])].slice(0,200);migrateBasket()}
  if(action==='delete')delete S.syncCode;else S.syncCode=code;
  save();if(!explicitCode){render();toast(action==='load'?'Favoriler birleştirildi.':action==='save'?'Bulut kaydı güncellendi.':'Bulut kaydı silindi.')}
 }
@@ -373,7 +376,7 @@ function featured(list){const pr=e=>(e.state==='in'?0:e.state==='pre'?2:3)-(isFa
   <span class="crs">${crest(e.h.logo,e.h.ab)}${crest(e.a.logo,e.a.ab)}</span>
   <span><span class="sc">${e.state==='pre'?hm(e.date):esc(e.h.sc)+'-'+esc(e.a.sc)}</span><span class="nm" style="display:block">${esc(e.h.nm)}<br>${esc(e.a.nm)}</span><span class="st">${statusTxt(e)}</span></span></button>`}).join('')}</div>`}
 const rc=n=>n?`<i class="rc" aria-label="${n} kırmızı kart">${n>1?n:''}</i>`:'';
-function mrow(e,showLg){const lv=e.state==='in',fav=S.fm.includes(e.id);
+function mrow(e,showLg){const lv=e.state==='in',fav=followsMatch(e.id,e.lg);
  const mid=e.state==='pre'?`<div class="mid">${hm(e.date)}<small>Başlamadı</small></div>`:`<div class="mid ${lv?'lv':''}">${esc(e.h.sc)} - ${esc(e.a.sc)}<small>${statusTxt(e)}</small>${e.ht?`<small class="ht">İY ${esc(e.ht)}</small>`:''}</div>`;
  const o=`onclick="openM('${e.lg}','${esc(e.id)}')"`;
  return `<div class="mr ${lv?'lv':''}">${showLg?`<span class="ml">${esc(LGN[e.lg].name)}</span>`:''}<button class="tm" ${o}>${crest(e.h.logo,e.h.ab)}<span>${esc(e.h.nm)}${rc(e.h.red)}</span></button><button ${o} aria-label="Maç detayı">${mid}</button><button class="tm" ${o}>${crest(e.a.logo,e.a.ab)}<span>${esc(e.a.nm)}${rc(e.a.red)}</span></button><button class="star ${fav?'on':''}" aria-label="${fav?'Takipten çıkar':'Maçı takip et'}" aria-pressed="${fav}" onclick="togM('${esc(e.id)}','${e.lg}')">${svg(ic.star,fav?'currentColor':'none')}</button></div>`}
@@ -441,7 +444,7 @@ function teamV(){const {lg,id}=V.team;const d=D.tm[lg+id]||{loading:1};const B=i
  const top=`<button class="back" onclick="history.length>1?history.back():go({tab:'home'})">${svg(ic.back)} Geri</button>`;
  if(d.loading)return top+`<div class="card empty"><p class="mut">Takım yükleniyor…</p></div>`;
  if(d.failed)return top+`<div class="card empty"><p class="mut">Takım verisine ulaşılamadı.</p></div>`;
- const nm=d.info.nm||D.tn[id]||'';const fol=S.ft.includes(id);
+ const nm=d.info.nm||D.tn[id]||'';const fol=followsTeam(id,lg);
  const hero=`<div class="hero" style="background:linear-gradient(150deg,${d.info.color||LGN[lg].color},#111)"><div class="mut" style="color:rgba(255,255,255,.85);font-weight:800;letter-spacing:.5px;text-transform:uppercase">${esc(LGN[d.slg||lg].name)}</div>
   <div style="margin-top:10px">${crest(d.info.logo,'')}<h1 style="font-size:30px;margin-top:8px">${esc(nm)}</h1></div>
   <button class="pill" style="width:auto;margin:10px auto 0;padding:9px 16px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-size:10px" onclick="togT('${esc(id)}','${lg}')">${fol?'✓ Takip ediliyor':'+ Takip et'}</button></div>`;
@@ -460,8 +463,8 @@ function teamV(){const {lg,id}=V.team;const d=D.tm[lg+id]||{loading:1};const B=i
  else{const st=D.stand[d.slg||lg];if(!st||st==='loading')body=`<div class="card empty"><p class="mut">Puan durumu yükleniyor…</p></div>`;else if(!Array.isArray(st))body=`<div class="card empty"><p class="mut">Puan durumu yok.</p></div>`;
   else{const g=st.find(x=>x.rows.some(r=>r.id===id))||st[0];body=`<div class="card" style="padding:4px 10px"><table><tr><th>#</th><th>${esc(g.name)}</th>${B?'<th>G</th><th>M</th><th>%</th>':'<th>O</th><th>AV</th><th>P</th>'}</tr>${g.rows.map((r,i)=>`<tr class="${r.id===id?'me':''}"><td>${B&&g.source!=='TBF'?i+1:(r.rank||i+1)}</td><td><span class="tn">${crest(r.logo,'')}${esc(r.nm)}</span></td>${B?`<td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td>`:`<td>${r.p}</td><td>${r.gd>0?'+':''}${r.gd}</td><td>${r.pts}</td>`}</tr>`).join('')}</table></div>`}}
  return `${top}${hero}${isDS(lg)?'<p class="mut" style="margin:8px 4px">DataSportsAPI · Alt lig bildirimleri veri ve kota durumuna bağlıdır.</p>':''}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.ttab===k}" class="${V.ttab===k?'on':''}" onclick="go({ttab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
-function togM(id,lg){const i=S.fm.indexOf(id);if(i<0){S.fm.push(id);if(LGN[lg])S.fml[id]=lg;toast('Maç takipte.')}else if(lg&&S.fml[id]&&S.fml[id]!==lg){S.fml[id]=lg;toast('Maç takipte.')}else{S.fm.splice(i,1);delete S.fml[id]}S.fm=S.fm.slice(-200);save();render()}
-function togT(id,lg){const nm=D.tn[id]||(S.ftn||{})[id]||'Takım';const i=S.ft.indexOf(id);if(i<0){S.ft.push(id);S.ftn=Object.assign(S.ftn||{},{[id]:nm});if(lg)S.ftl[id]=lg;toast(nm+' takip ediliyor')}else {S.ft.splice(i,1);if(S.teamNoticePrefs)delete S.teamNoticePrefs[id]}save();render()}
+function togM(id,lg){if(isB(lg)){const k=basketKey(lg,id);S.bfm=S.bfm.includes(k)?S.bfm.filter(x=>x!==k):[...S.bfm,k].slice(-200);save();render();return}const i=S.fm.indexOf(id);if(i<0){S.fm.push(id);if(LGN[lg])S.fml[id]=lg;toast('Maç takipte.')}else if(lg&&S.fml[id]&&S.fml[id]!==lg){S.fml[id]=lg;toast('Maç takipte.')}else{S.fm.splice(i,1);delete S.fml[id]}S.fm=S.fm.slice(-200);save();render()}
+function togT(id,lg){if(isB(lg)){const k=basketKey(lg,id);if(S.bft.includes(k)){S.bft=S.bft.filter(x=>x!==k);delete S.bftn[k]}else{S.bft=[...S.bft,k].slice(-200);S.bftn[k]=D.tn[id]||id}save();render();return}const nm=D.tn[id]||(S.ftn||{})[id]||'Takım';const i=S.ft.indexOf(id);if(i<0){S.ft.push(id);S.ftn=Object.assign(S.ftn||{},{[id]:nm});if(lg)S.ftl[id]=lg;toast(nm+' takip ediliyor')}else {S.ft.splice(i,1);if(S.teamNoticePrefs)delete S.teamNoticePrefs[id]}save();render()}
 const ROLE={'Referee':'Orta hakem','Assistant Referee':'Yardımcı hakem','Linesman':'Yardımcı hakem','Fourth Official':'4. hakem','4th Official':'4. hakem','Video Assistant Referee':'VAR','VAR':'VAR','Assistant VAR':'AVAR','Assistant Video Assistant Referee':'AVAR','Umpire':'Hakem','Crew Chief':'Başhakem'};
 const BSTL=[['fieldGoalPct','Saha içi %','%'],['threePointFieldGoalPct','Üçlük %','%'],['freeThrowPct','Serbest atış %','%'],['totalRebounds','Ribaund'],['offensiveRebounds','Hücum ribaundu'],['assists','Asist'],['steals','Top çalma'],['blocks','Blok'],['turnovers','Top kaybı'],['fastBreakPoints','Hızlı hücum sayısı'],['pointsInPaint','Boyalı alan sayısı'],['fouls','Faul'],['largestLead','En büyük fark']];
 const LDN={points:'Sayı',rebounds:'Ribaund',assists:'Asist'};
@@ -508,7 +511,7 @@ function detail(){const {lg,id}=V.match;const j=D.sum[id];const e=D.ev.find(x=>x
  const tlink=(t,inner)=>!isAS(lg)&&t.id?`<button class="tl" onclick="openT('${lg}','${esc(t.id)}')" aria-label="${esc(t.nm)} takım sayfası">${inner}</button>`:inner;
  const hero=`<div class="hero" style="background:linear-gradient(150deg,${H.color||LGN[lg].color},${A.color||'#111'})"><div class="mut" style="color:rgba(255,255,255,.85);font-weight:800;letter-spacing:.5px;text-transform:uppercase">${esc(LGN[lg].name)}${when?' · '+when.toLocaleDateString('tr-TR',{day:'numeric',month:'long'}):''}</div>
  <div class="g3"><div>${tlink(H,crest(H.logo,H.ab)+`<div class="tn">${esc(H.nm)}</div>`)}${extra(H)}</div><div><div class="s">${state==='pre'&&when?hm(when):esc(H.sc)+'-'+esc(A.sc)}</div><div style="font-size:12px;font-weight:700;margin-top:4px">${state==='pre'?'Başlamadı':subTxt}</div></div><div>${tlink(A,crest(A.logo,A.ab)+`<div class="tn">${esc(A.nm)}</div>`)}${extra(A)}</div></div>
- <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">${[H,A].map(t=>t.id?`<button class="pill" style="width:auto;margin:0;padding:9px 14px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-size:10px" onclick="togT('${esc(t.id)}','${lg}')">${S.ft.includes(t.id)?'✓ ':'+ '}${esc(t.nm)}</button>`:'').join('')}</div></div>`;
+ <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">${[H,A].map(t=>t.id?`<button class="pill" style="width:auto;margin:0;padding:9px 14px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-size:10px" onclick="togT('${esc(t.id)}','${lg}')">${followsTeam(t.id,lg)?'✓ ':'+ '}${esc(t.nm)}</button>`:'').join('')}</div></div>`;
  const tabs=isDS(lg)?[['bil','Bilgi'],['kad','Kadro'],['oyn','Oyuncu istatistikleri'],['eksik','Eksikler']]:isAS(lg)?(['as-el','as-ec'].includes(lg)&&/^el[eu]20\d{2}\d{1,4}$/.test(id)?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['bil','Bilgi']]:[['ozet','Özet']]):B?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['h2h','Karşılaştırma'],['bil','Bilgi']]:[['ozet','Özet'],['ist','İstatistik'],['kad','Kadro'],['anl','Anlatım'],['h2h','Karşılaştırma'],['bil','Bilgi']];
  if(!tabs.some(t=>t[0]===V.dtab))V.dtab=tabs[0][0];
  let body='';
@@ -589,9 +592,9 @@ function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(lg==='d
 const ZT={'champions league':'Şampiyonlar Ligi','champions league qualifying':'Şampiyonlar Ligi elemeleri','europa league':'Avrupa Ligi','europa league qualifying':'Avrupa Ligi elemeleri','conference league qualifying':'Konferans Ligi elemeleri','europa conference league qualifying':'Konferans Ligi elemeleri','conference league':'Konferans Ligi','relegated':'Küme düşme','relegation':'Küme düşme','relegation playoff':'Küme düşme play-off','relegation play-off':'Küme düşme play-off','promotion':'Üst lige çıkış','promoted':'Üst lige çıkış','promotion playoff':'Play-off (çıkış)','playoffs':'Play-off','play-in':'Play-in','round of 16':'Son 16','knockout round playoffs':'Play-off turu','next round':'Üst tur','copa libertadores':'Libertadores','copa sudamericana':'Sudamericana','eliminated':'Elendi'};
 const ZONE=d=>ZT[String(d||'').toLowerCase()]||d;
 function setSL(k){if(isB(k))S.slgB=k;else S.slg=k;V.grp=0;V.lcat=0;if(!hasLeaders(k))V.stab='stand';save();render()}
-function favs(){if(D.state==='idle')setTimeout(loadDay);const ms=D.ev.filter(isFav);const tn=S.ftn||{};
+function favs(){if(D.state==='idle')setTimeout(loadDay);const ms=D.ev.filter(isFav);const tn=S.ftn||{};const bTeams=S.bft.map(k=>{const i=k.indexOf(':');return{lg:k.slice(0,i),id:k.slice(i+1),name:S.bftn[k]||k}}).filter(t=>LGN[t.lg]);
  return `${topBar('Favoriler')}${sportBar()}<h2 style="text-align:left;margin-top:4px">Takip ettiğin takımlar</h2>
- ${S.ft.length?`<div class="card">${S.ft.map(id=>`<div class="row">${S.ftl[id]&&LGN[S.ftl[id]]?`<button style="text-align:left;flex:1;min-height:44px;font-weight:600" onclick="openT('${S.ftl[id]}','${esc(id)}')">${esc(tn[id]||id)} <span class="mut">›</span></button>`:`<span>${esc(tn[id]||id)}</span>`}<button class="mut" style="min-height:44px" onclick="togT('${esc(id)}')">Çıkar</button></div>`).join('')}</div>`:`<div class="card empty"><p class="mut">Henüz takım yok. Bir maçı açıp takım adının yanındaki + düğmesine dokun.</p></div>`}
+ ${S.sport==='basketball'?(bTeams.length?`<div class="card">${bTeams.map(t=>`<div class="row"><button style="flex:1;text-align:left" onclick="openT('${t.lg}','${esc(t.id)}')">${esc(t.name)} <small class="mut">${esc(LGN[t.lg].name)}</small></button><button class="mut" onclick="togT('${esc(t.id)}','${t.lg}')">Çıkar</button></div>`).join('')}</div>`:emptyBox('Henüz takip ettiğin basketbol takımı yok.')):S.ft.length?`<div class="card">${S.ft.map(id=>`<div class="row">${S.ftl[id]&&LGN[S.ftl[id]]?`<button style="text-align:left;flex:1;min-height:44px;font-weight:600" onclick="openT('${S.ftl[id]}','${esc(id)}')">${esc(tn[id]||id)} <span class="mut">›</span></button>`:`<span>${esc(tn[id]||id)}</span>`}<button class="mut" style="min-height:44px" onclick="togT('${esc(id)}')">Çıkar</button></div>`).join('')}</div>`:`<div class="card empty"><p class="mut">Henüz takım yok. Bir maçı açıp takım adının yanındaki + düğmesine dokun.</p></div>`}
  <h2 style="text-align:left">${V.off===0?'Bugün':dayAt(V.off).toLocaleDateString('tr-TR',{day:'numeric',month:'long'})} takip ettiğin maçlar</h2>
  ${ms.length?grouped(ms):`<div class="card empty"><p class="mut">Seçili günde takip ettiğin maç yok.</p></div>`}
  ${!(S.notif&&window.TribunPush?.active())?`<button class="pill k" onclick="askNotif()">Maç bildirimlerini aç</button>`:''}`}
@@ -603,7 +606,7 @@ function wc(){return `<button class="back" onclick="go({tab:'std'})">${svg(ic.ba
  <h2 style="text-align:left">Gol krallığı</h2><div class="card">${SCORERS.map((s,i)=>`<div class="row"><span><b style="color:var(--or)">${i+1}.</b> ${s[0]} <span class="mut">· ${s[1]}</span></span><span class="an" style="font-size:22px">${s[2]}</span></div>`).join('')}</div>`}
 function profile(){const head=S.user?`<div class="av">${esc(S.user[0].toUpperCase())}</div><h1 style="font-size:32px">${esc(S.user)}</h1><button class="mut" style="text-decoration:underline;min-height:44px" onclick="editName()">Adı düzenle</button>`
  :`<div class="av">?</div><h1 style="font-size:32px">Misafir</h1><p class="mut" style="margin:6px 0 4px">Adını bu cihaza kaydetmek için profil oluştur.</p><button class="pill k" onclick="editName()">Profil oluştur</button>`;
- return `<div style="text-align:center;margin:12px 0 18px">${head}</div><div class="card" style="display:grid;grid-template-columns:1fr 1fr;text-align:center;padding:14px"><div><div class="an" style="font-size:28px">${S.ft.length}</div><span class="mut">Takım</span></div><div><div class="an" style="font-size:28px">${S.fm.length}</div><span class="mut">Takip edilen maç</span></div></div>
+ return `<div style="text-align:center;margin:12px 0 18px">${head}</div><div class="card" style="display:grid;grid-template-columns:1fr 1fr;text-align:center;padding:14px"><div><div class="an" style="font-size:28px">${S.ft.length+S.bft.length}</div><span class="mut">Takım</span></div><div><div class="an" style="font-size:28px">${S.fm.length+S.bfm.length}</div><span class="mut">Takip edilen maç</span></div></div>
  <div class="card" style="margin-top:14px"><button class="row" onclick="go({tab:'fav'})">Favoriler<span>›</span></button><button class="row" onclick="go({tab:'sync'})">Favorileri eşitle<span>›</span></button><button class="row" onclick="go({tab:'search'})">Arama merkezi<span>›</span></button><button class="row" onclick="go({tab:'news'})">Spor haberleri<span>›</span></button><button class="row" onclick="go({tab:'wc'})">Arşiv: Dünya Kupası 2026<span>›</span></button><button class="row" onclick="openHistory()">Bildirim geçmişi<span>›</span></button><button class="row" onclick="go({tab:'set'})">Bildirimler ve ayarlar<span>›</span></button></div>`}
 function editName(){modal(`<h1 style="font-size:30px">${S.user?'Adı düzenle':'Profil oluştur'}</h1><form onsubmit="event.preventDefault();const v=$('#nn').value.trim();if(!v)return toast('Bir ad yaz');S.user=v;save();closeM();render()"><input id="nn" value="${esc(S.user||'')}" maxlength="24" placeholder="Adın" autocomplete="nickname"><button class="pill k">Kaydet</button></form><p class="mut" style="margin-top:10px">Bilgiler yalnızca bu cihazda saklanır.</p>`);setTimeout(()=>$('#nn')?.focus(),50)}
 const L={g:['Gizlilik politikası','Profil adın yalnızca bu cihazda saklanır. Arka plan bildirimlerini açarsan cihazın Web Push aboneliği ile takip ettiğin maç ve takım kimlikleri ile bildirim tercihleri sunucuda saklanır. İsteğe bağlı favori eşitlemesinde yalnızca takip listesi ve takım adları, gizli kodla erişilen sunucu kaydında 90 gün tutulur. Son 100 alınan bildirim bu cihazda saklanır ve geçmiş ekranından silinebilir. Bildirimleri kapatabilir veya verilerini silebilirsin. Kullanılmayan kayıtlar 90 gün sonra temizlenir. Skor verileri ESPN\'in kamuya açık verisinden alınır.'],s:['Kullanım şartları','Skor ve istatistikler bilgilendirme amaçlıdır; bahis veya ticari amaçla kullanılamaz. Tribün; ESPN, FIFA, UEFA, NBA, EuroLeague ya da herhangi bir lig ile bağlantılı değildir. Takım logoları sahiplerine aittir.']};
@@ -674,12 +677,13 @@ function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg
  <div class="card" style="margin-top:10px"><button class="sw ${S.sound?'on':''}" role="switch" aria-checked="${!!S.sound}" onclick="S.sound=S.sound?0:1;save();if(S.sound)beep();render()">Uygulama içi gol sesi<i></i></button></div>
  <p class="mut" style="margin:8px 4px 14px">Takip edilen desteklenen futbol ve basketbol maçları için arka plan bildirimlerini aç. İlk kez etkinleştirirken tarayıcı izni gerekir.</p>
  <div class="card"><button class="row" onclick="legal('g')">Gizlilik politikası<span>›</span></button><button class="row" onclick="legal('s')">Kullanım şartları<span>›</span></button></div>
- ${S.user||S.fm.length||S.ft.length?'<button class="pill r" onclick="askDel()">Verilerimi sil</button>':''}`}
+ ${S.user||S.fm.length||S.ft.length||S.bfm.length||S.bft.length?'<button class="pill r" onclick="askDel()">Verilerimi sil</button>':''}`}
 function askDel(){modal(`<h1 style="font-size:30px">Veriler silinsin mi?</h1><p style="margin:12px 0">Profil adın, takip ettiğin maç ve takımlar bu cihazdan kalıcı olarak silinir.</p><button class="pill r" onclick="delAll()">Sil</button><button class="pill" onclick="closeM()">Vazgeç</button>`)}
-async function delAll(){if(S.syncCode){try{await syncFavorites('delete',S.syncCode)}catch{toast('Bulut kaydı silinemedi.');return}}try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{await window.TribunHistory?.clear();historyRows=[]}catch{toast('Bildirim geçmişi silinemedi. Tekrar dene.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},fml:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
+async function delAll(){if(S.syncCode){try{await syncFavorites('delete',S.syncCode)}catch{toast('Bulut kaydı silinemedi.');return}}try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{await window.TribunHistory?.clear();historyRows=[]}catch{toast('Bildirim geçmişi silinemedi. Tekrar dene.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},fml:{},bfm:[],bft:[],bftn:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
 Object.assign(window,{toggleBasket,XQuery,searchType,runSearch,openLeague,openEntityProfile,entityExtra,loadDirectory,selectNews,loadNews,loadTransfers,retryDetail,setTheme,generateSync,copySync,syncAction,setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,retryLeaders,askNotif,stopNotif,testNotif,toggleNotice,selectNoticeTeam,toggleTeamCustom,toggleTeamNotice,openHistory,loadHistory,clearHistory,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
 const r0=readHash();if(r0){V.splash=false;Object.assign(V,r0);if(V.match){S.sport=sp(V.match.lg);loadSum(V.match.lg,V.match.id)}if(V.team){S.sport=sp(V.team.lg);loadTeam(V.team.lg,V.team.id)}}
 applyTheme();
+if(migrateBasket())save();
 loadTR();
 window.TribunPush?.sync(S,true);
 render();

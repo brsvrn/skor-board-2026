@@ -33,7 +33,7 @@ const EL = 'https://api-live.euroleague.net/';
 const COMP = { 'as-el': 'E', 'as-ec': 'U' };
 const seasonYear = () => { const d = new Date(); return d.getUTCMonth() >= 6 ? d.getUTCFullYear() : d.getUTCFullYear() - 1; };
 async function elGet(path) {
-  const r = await fetch(EL + path, { headers: { accept: 'application/json' } });
+  const r = await fetch(EL + path, { headers: { accept: 'application/json' },signal:AbortSignal.timeout(7000) });
   if (!r.ok) throw new Error('el ' + r.status);
   return r.json();
 }

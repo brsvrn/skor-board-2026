@@ -36,7 +36,7 @@ export default async function handler(req,res){
  const x=await cached('fixtures/'+id.slice(2),3600);const e=fixture(x,true);if(!e)return res.status(404).json({error:'unsupported'});return res.json({event:e});
  }
  if(a==='team'&&/^990000[1-9]\d{0,11}$/.test(id)&&Object.hasOwn(LEAGUES,lg)){
- const n=id.slice(6);const [a,b]=await Promise.all([cached('teams/'+n+'/fixtures?type=recent',21600,x=>x.map(v=>fixture(v)).filter(Boolean)),cached('teams/'+n+'/fixtures?type=upcoming',21600,x=>x.map(v=>fixture(v)).filter(Boolean))]);const ev=[...a,...b],t=ev.flatMap(e=>[e.h,e.a]).find(t=>t.id===id);if(!t)return res.status(404).json({error:'no_data'});return res.json({events:ev,team:t});
+ const n=id.slice(6);const results=await Promise.allSettled([cached('teams/'+n+'/fixtures?type=recent',21600,x=>x.map(v=>fixture(v)).filter(Boolean)),cached('teams/'+n+'/fixtures?type=upcoming',21600,x=>x.map(v=>fixture(v)).filter(Boolean))]);const ev=[...new Map(results.filter(x=>x.status==='fulfilled').flatMap(x=>x.value).map(e=>[e.id,e])).values()];let t=ev.flatMap(e=>[e.h,e.a]).find(t=>t.id===id);if(!t){const q=await cached('teams/'+n,86400);if(String(q.id)===n)t={id,nm:q.name,logo:q.image||''}}if(!t)return res.status(404).json({error:'no_data'});return res.json({events:ev,team:t,partial:results.some(x=>x.status==='rejected')});
  }
  return res.status(400).json({error:'bad_request'});
  }catch(e){return res.status(e.message==='budget'?429:e.message==='restricted'?422:e.message==='no_data'?404:503).json({error:['budget','restricted','no_data','busy'].includes(e.message)?e.message:'upstream'})}
