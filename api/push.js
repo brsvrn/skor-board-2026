@@ -1,9 +1,10 @@
 import webpush from 'web-push';
-import {leagues,hash,equal,tokenOK,subscriptionOK,ids,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
+import {leagues,hash,equal,tokenOK,subscriptionOK,ids,matchIds,dsTeam,dsNotices,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
+import {fixtures as dsFixtures,dsPushEvent,dsDelay} from '../lib/ds-data.js';
 const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
-async function markTick(c,now,state){await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state}),'EX',86400);}
+async function markTick(c,now,state,dsState){const prior=parse(await redis(c,'GET',STATUS));await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state,dsState:dsState||prior?.dsState||'idle'}),'EX',86400);}
 async function redis(c,...cmd){
  const r=await fetch(c.url,{method:'POST',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},body:JSON.stringify(cmd),signal:AbortSignal.timeout(6000)});
  const j=await r.json();if(!r.ok||j.error)throw Error('redis');return j.result;
@@ -32,9 +33,27 @@ async function tick(c){
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
  if(!subs.length){await markTick(c,now,'idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
- const due=leagues.filter(l=>shouldScan(parse(previous[l]),now,changed));
- if(!due.length){await markTick(c,now,'ok');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ const espnSubs=subs.filter(([,s])=>s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id)));
+ const dsSubs=subs.filter(([,s])=>s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam));
+ const due=espnSubs.length?leagues.filter(l=>shouldScan(parse(previous[l]),now,changed)):[];
+ const dsOld=parse(previous['ds-all'])||{},dsDue=dsSubs.length&&process.env.DATASPORTS_API_KEY&&shouldScan(dsOld,now,Math.max(...dsSubs.map(([,s])=>Number(s.changed)||0)));
+ if(!due.length&&!dsDue){await markTick(c,now,'ok');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
  const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
+ let dsState=dsSubs.length?'cached':'idle';
+ if(dsDue){try{
+ const today=new Date(now).toISOString().slice(0,10),yesterday=new Date(now-86400000).toISOString().slice(0,10);
+ const dsPeople=dsSubs.map(([,s])=>s),oldEvents=Object.values(dsOld).filter(x=>x&&typeof x==='object'&&x.lg);
+ const active=oldEvents.some(e=>e.state==='in'||e.state==='pre'&&e.kickoff-now<=20*60000&&e.kickoff-now>=-30*60000);
+ const ttl=active?120:300;
+ const data=await dsFixtures(today,ttl,true);
+ const prevActive=oldEvents.some(e=>e.state==='in'&&e.kickoff<Date.parse(today));
+ if(prevActive&&new Date(now).getUTCHours()<3){const y=await dsFixtures(yesterday,ttl,true);data.push(...y)}
+ const ev=[...new Map(data.map(dsPushEvent).filter(Boolean).map(e=>[e.id,e])).values()].filter(e=>dsPeople.some(s=>follows(s,e)));
+ const next={__scanAt:now,__nextPoll:now+dsDelay(ev,dsPeople,now,follows)};
+ for(const e of ev){const before=dsOld[e.id],ob=dsNotices(before,e,now);next[e.id]={...ob.next,lg:e.lg,kickoff:e.kickoff};for(const n of ob.notices)for(const [id,s] of dsSubs)if((['reminder','lineup'].includes(n.kind)||s.changed<=(before?.at||0))&&follows(s,e)&&wants(s,e,n.kind))out.push({id,s,e,n});}
+ updates.push('ds-all',JSON.stringify(next));dsState='ok';
+ }catch(e){dsState=e.message==='budget'?'budget':'unavailable';updates.push('ds-all',JSON.stringify({...dsOld,__scanAt:now,__nextPoll:now+10*60000}));}}
+
  const candidates=[];
  for(let i=0;i<due.length;i++){if(result[i].status!=='fulfilled')continue;const old=parse(previous[due[i]])||{};for(const e of result[i].value){const b=old[e.id],until=e.kickoff-now,people=subs.map(([,s])=>s).filter(s=>follows(s,e));if(e.state==='pre'&&until>0&&until<=90*60000&&!b?.lineupSeen&&people.some(s=>wants(s,e,'lineup'))&&now-(b?.summaryAt||0)>=180000||e.state==='in'&&people.some(s=>wants(s,e,'var')||wants(s,e,'cancel')))candidates.push({e,at:b?.summaryAt||0});}}
  const summaries=new Map();await Promise.all(candidates.sort((a,b)=>a.at-b.at).slice(0,8).map(async({e})=>{try{const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/soccer/'+e.lg+'/summary?event='+e.id,{headers:{accept:'application/json'},signal:AbortSignal.timeout(5000)});if(r.ok){const j=await r.json();summaries.set(e.lg+':'+e.id,readSummary(j,e));}}catch{}}));
@@ -57,8 +76,8 @@ async function tick(c){
  }));
  if(stale.size)await redis(c,'HDEL',SUB,...stale);
  const good=result.filter(x=>x.status==='fulfilled').length;
- await markTick(c,now,good===due.length?'ok':good?'partial':'upstream_error');
- return {checked:subs.length,leagues:good,sent,failed,limited:Math.max(0,out.length-100)};
+ await markTick(c,now,good===due.length?(dsState==='budget'||dsState==='unavailable'?'partial':'ok'):good?'partial':'upstream_error',dsState);
+ return {checked:subs.length,leagues:good,dsState,sent,failed,limited:Math.max(0,out.length-100)};
 }
 export default async function handler(req,res){
  const c=cfg(),action=String(req.query.action||'config');
@@ -72,7 +91,7 @@ export default async function handler(req,res){
   if(action==='status'&&req.method==='GET'){
    const s=parse(await redis(c,'GET',STATUS));
    res.setHeader('Cache-Control','s-maxage=30, stale-while-revalidate=30');
-   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started'});
+   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started',dsState:s?.dsState||'idle'});
   }
   if(action==='tick'){
    if(req.method!=='POST')return reply(res,405,{error:'method'});
@@ -103,7 +122,7 @@ export default async function handler(req,res){
    await redis(c,'SET',k,'0','NX','EX',3700);
    if(Number(await redis(c,'INCR',k))>20)return reply(res,429,{error:'rate_limit'});
   }
-  const now=Date.now(),fm=ids(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
+  const now=Date.now(),fm=matchIds(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
   const same=old&&JSON.stringify([old.fm,old.ft,noticePrefs(old.prefs),teamPrefs(old.teamPrefs,old.ft||[]),old.subscription])===JSON.stringify([fm,ft,prefs,teams,subscription]);
   const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,prefs,teamPrefs:teams,seen:now,changed:same?old.changed:now}));
   return reply(res,ok?200:429,ok?{ok:true}:{error:'capacity'});

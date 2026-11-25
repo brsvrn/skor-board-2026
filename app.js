@@ -124,19 +124,14 @@ function dsSummary(e){
  return {ds:true,header:{competitions:[{date:e.date,status:{type:{state:e.state,shortDetail:e.short},displayClock:e.clock},competitors:cs}]},gameInfo:{venue:{fullName:e.venue,address:{city:typeof e.city==='string'?e.city:''}},attendance:e.attendance,officials:e.referee?[{displayName:e.referee,position:{name:'Referee'}}]:[]},coaches:e.coaches||[]};
 }
 function matchName(s){return String(s||'').toLocaleLowerCase('tr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ı/g,'i').replace(/[^a-z0-9]/g,'')}
-async function enrichSuper(j){
- const c=j?.header?.competitions?.[0],d=c?.date;if(!d)return;
- const day=new Date(d).toISOString().slice(0,10);
- let rows=D.dsDate===day?D.dsSuper:null;
- if(!rows){const x=await dsApi({action:'day',date:day});rows=x?.super||[]}
- const h=c.competitors?.find(x=>x.homeAway==='home')?.team,a=c.competitors?.find(x=>x.homeAway==='away')?.team;
- const names=t=>[t?.displayName,t?.shortDisplayName,t?.name].filter(Boolean).map(matchName);
- const both=(t,n)=>names(t).includes(matchName(n));
- const match=rows.filter(e=>Math.abs(Date.parse(e.date)-Date.parse(d))<=600000&&both(h,e.rawHome)&&both(a,e.rawAway));
- if(match.length!==1)return;
- const x=await dsApi({action:'match',id:match[0].id});if(!x?.event)return;const e=x.event;
- if(e.referee){j.gameInfo=j.gameInfo||{};j.gameInfo.officials=[...(j.gameInfo.officials||[]),{displayName:e.referee,position:{name:'Referee'}}]}
- if(e.coaches?.length)j.coaches=e.coaches;
+async function enrichOfficials(j,lg,id){
+ if(j.dsOfficialPending||j.dsOfficialDone)return;
+ j.dsOfficialPending=true;
+ try{const x=await dsApi({action:'officials',league:lg,id});if(!x)return;
+ j.dsOfficialDone=true;
+ if(x.referee){j.gameInfo=j.gameInfo||{};j.gameInfo.officials=[...(j.gameInfo.officials||[]),{displayName:x.referee,position:{name:'Referee'}}]}
+ if(x.coaches?.length){j.coaches=x.coaches;j.currentManagers=true}
+ }finally{j.dsOfficialPending=false;if(V.match?.id===id)render()}
 }
 
 async function loadAS(k){const d=k.slice(0,4)+'-'+k.slice(4,6)+'-'+k.slice(6,8);
@@ -157,7 +152,7 @@ async function loadSum(lg,id){
   if(V.match&&V.match.id===id)window.TribunPush?.sync(S,true);
 render();return}
  const j=await api(`site/v2/sports/${sp(lg)}/${lg}/summary?event=${id}`);
- if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render();if(lg==='tur.1'){await enrichSuper(j).catch(()=>{});if(V.match?.id===id)render()}}
+ if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render();if(!isB(lg)&&!isDS(lg)&&V.match?.id===id&&V.dtab==='bil')await enrichOfficials(j,lg,id).catch(()=>{})}
  else if(!D.sum[id]){D.sum[id]={failed:1};if(V.match&&V.match.id===id)render()}}
 async function loadStand(lg){
  if(isDS(lg)){const j=await dsApi({action:'stand',league:lg});D.stand[lg]=j?.groups?.length?j.groups:'no_data';if(V.tab==='std'||V.team)render();return}
@@ -264,7 +259,7 @@ function matchOfficials(j){
 function officialRows(j,lg){
  const os=matchOfficials(j);
  if(os.length)return os.map(o=>'<span>'+esc(ROLE[o.role]||o.role)+'</span><b>'+esc(o.name)+'</b>').join('');
- return '<span>Hakem</span><b>Veri kaynağında bulunamadı'+(lg==='tur.1'?'<br><a style="font-size:12px;color:inherit;text-decoration:underline" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/default.aspx?pageID=328">TFF hakem ve maç bilgileri ↗</a>':'')+'</b>';
+ return '<span>Hakem</span><b>'+(j.dsOfficialPending?'Hakem bilgisi sorgulanıyor…':'Veri kaynağında bulunamadı')+(lg==='tur.1'?'<br><a style="font-size:12px;color:inherit;text-decoration:underline" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/default.aspx?pageID=328">TFF hakem ve maç bilgileri ↗</a>':'')+'</b>';
 }
 
 function planCard(date){return `<div class="card stat"><i></i><span>${date?'Ücretsiz veri planı nedeniyle diğer Avrupa basketbol ligleri bu tarih için gösterilemiyor. NBA, EuroLeague ve EuroCup verileri varsa gösterilir.':'Bu ligin puan durumu mevcut ücretsiz veri planında sunulmuyor.'}</span></div>`}
@@ -275,7 +270,7 @@ function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:
 function filtered(){const all=D.ev;return V.filt==='live'?all.filter(e=>e.state==='in'):V.filt==='fav'?all.filter(isFav):V.filt==='done'?all.filter(e=>e.state==='post'):all}
 function listBody(){const L=listing(filtered());
  const empty=D.state==='ok'?`<div class="card empty"><p class="mut">${V.q?'Aramana uyan maç yok.':V.filt==='live'?'Şu an oynanan maç yok.':V.filt==='fav'?'Takip ettiğin maç yok. Maçların yanındaki yıldıza dokun.':'Bu tarihte seçili liglerde maç yok.'}</p></div>`:'';
- return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${S.sport==='soccer'?`<p class="mut" style="margin:8px 4px">Türkiye alt ligleri: en fazla 20 dakikada bir veri sorgulanır; ücretsiz kota dolarsa eski veri kalabilir. ${D.dsOff?'Alt lig verisi şu anda alınamadı.':''}</p>`:''}${L||empty}${S.sport==='soccer'&&D.dsOff?trFederationLinks():''}`}
+ return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${S.sport==='soccer'?`<p class="mut" style="margin:8px 4px">Türkiye alt ligleri: normalde 20 dakikada bir, takipli canlı maçlarda daha sık sorgulanır; kota dolarsa eski veri kalabilir. ${D.dsOff?'Alt lig verisi şu anda alınamadı.':''}</p>`:''}${L||empty}${S.sport==='soccer'&&D.dsOff?trFederationLinks():''}`}
 function setQ(v){V.q=v;const l=$('#lst');if(l)l.innerHTML=listBody()}
 function setSort(k){S.sort=k;save();render()}
 function home(){if(D.state==='idle')setTimeout(loadDay);
@@ -317,7 +312,7 @@ function teamV(){const {lg,id}=V.team;const d=D.tm[lg+id]||{loading:1};const B=i
   body=keys.length?keys.map(k=>`<h2 style="text-align:left;margin-top:6px">${esc(PG[k]||k)}</h2><div class="card">${grp[k].map(p=>`<div class="pl"><b>${esc(p.jersey||'')}</b><span>${esc(p.displayName||p.fullName||'')}</span><em>${p.age?esc(p.age)+' yaş':''}${p.citizenship?' · '+esc(p.citizenship):''}</em></div>`).join('')}</div>`).join(''):`<div class="card empty"><p class="mut">Kadro bilgisi yok.</p></div>`}
  else{const st=D.stand[d.slg||lg];if(!st||st==='loading')body=`<div class="card empty"><p class="mut">Puan durumu yükleniyor…</p></div>`;else if(!Array.isArray(st))body=`<div class="card empty"><p class="mut">Puan durumu yok.</p></div>`;
   else{const g=st.find(x=>x.rows.some(r=>r.id===id))||st[0];body=`<div class="card" style="padding:4px 10px"><table><tr><th>#</th><th>${esc(g.name)}</th>${B?'<th>G</th><th>M</th><th>%</th>':'<th>O</th><th>AV</th><th>P</th>'}</tr>${g.rows.map((r,i)=>`<tr class="${r.id===id?'me':''}"><td>${B&&g.source!=='TBF'?i+1:(r.rank||i+1)}</td><td><span class="tn">${crest(r.logo,'')}${esc(r.nm)}</span></td>${B?`<td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td>`:`<td>${r.p}</td><td>${r.gd>0?'+':''}${r.gd}</td><td>${r.pts}</td>`}</tr>`).join('')}</table></div>`}}
- return `${top}${hero}${isDS(lg)?'<p class="mut" style="margin:8px 4px">DataSportsAPI · Ücretsiz veri; alt liglerde arka plan bildirimi henüz yok.</p>':''}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.ttab===k}" class="${V.ttab===k?'on':''}" onclick="go({ttab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
+ return `${top}${hero}${isDS(lg)?'<p class="mut" style="margin:8px 4px">DataSportsAPI · Alt lig bildirimleri veri ve kota durumuna bağlıdır.</p>':''}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.ttab===k}" class="${V.ttab===k?'on':''}" onclick="go({ttab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
 function togM(id){const i=S.fm.indexOf(id);if(i<0){S.fm.push(id);toast('Maç takipte.')}else S.fm.splice(i,1);S.fm=S.fm.slice(-200);save();render()}
 function togT(id,lg){const nm=D.tn[id]||(S.ftn||{})[id]||'Takım';const i=S.ft.indexOf(id);if(i<0){S.ft.push(id);S.ftn=Object.assign(S.ftn||{},{[id]:nm});if(lg)S.ftl[id]=lg;toast(nm+' takip ediliyor')}else {S.ft.splice(i,1);if(S.teamNoticePrefs)delete S.teamNoticePrefs[id]}save();render()}
 const ROLE={'Referee':'Orta hakem','Assistant Referee':'Yardımcı hakem','Linesman':'Yardımcı hakem','Fourth Official':'4. hakem','4th Official':'4. hakem','Video Assistant Referee':'VAR','VAR':'VAR','Assistant VAR':'AVAR','Assistant Video Assistant Referee':'AVAR','Umpire':'Hakem','Crew Chief':'Başhakem'};
@@ -402,8 +397,8 @@ function detail(){const {lg,id}=V.match;const j=D.sum[id];const e=D.ev.find(x=>x
    if(c1.score==null||c2.score==null){}else if(s1===s2)dr++;else{const w=s1>s2?t1:t2;if(w===H.id)wH++;else if(w===A.id)wA++}
    return `<div class="cm"><b style="width:44px;color:var(--mut);font-weight:600">${x.date?new Date(x.date).getFullYear():''}</b><span style="flex:1">${esc(nm(t1)||(c1.team||{}).abbreviation||'')} <strong>${esc(c1.score??'')}-${esc(c2.score??'')}</strong> ${esc(nm(t2)||(c2.team||{}).abbreviation||'')}<br><span class="mut">${esc(x.competitionName||x.shortName||'')}</span></span></div>`}).join('');
   body=rows?`<div class="card" style="display:grid;grid-template-columns:repeat(${B?2:3},1fr);text-align:center;padding:14px;margin-bottom:10px"><div><div class="an" style="font-size:28px">${wH}</div><span class="mut">${esc(H.nm)}</span></div>${B?'':`<div><div class="an" style="font-size:28px">${dr}</div><span class="mut">Beraberlik</span></div>`}<div><div class="an" style="font-size:28px">${wA}</div><span class="mut">${esc(A.nm)}</span></div></div><div class="card">${rows}</div>`:`<div class="card empty"><p class="mut">Geçmiş karşılaşma verisi yok.</p></div>`}
- else{const gi=(j.boxscore||{}).gameInfo||j.gameInfo||{};const vn=gi.venue||{};
-  body=`<div class="card info">${(j.coaches||[]).map(c=>`<span>${esc(c.team)} · Antrenör</span><b>${esc(c.name)}</b>`).join('')}<span>${B?'Salon':'Stadyum'}</span><b>${esc(vn.fullName||(e&&e.venue)||'-')}</b><span>Şehir</span><b>${esc(((vn.address||{}).city)||'-')}</b><span>Seyirci</span><b>${gi.attendance?Number(gi.attendance).toLocaleString('tr-TR'):'-'}</b>${officialRows(j,lg)}<span>Başlama</span><b>${when?when.toLocaleString('tr-TR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'-'}</b></div>`}
+ else{if(!B&&!isDS(lg)&&!j.dsOfficialPending&&!j.dsOfficialDone&&!j.dsOfficialAttempted){j.dsOfficialAttempted=true;setTimeout(()=>enrichOfficials(j,lg,id),0)}const gi=(j.boxscore||{}).gameInfo||j.gameInfo||{};const vn=gi.venue||{};
+  body=`<div class="card info">${(j.coaches||[]).map(c=>`<span>${esc(c.team)} · ${j.currentManagers||j.ds?'Güncel teknik direktör':'Antrenör'}</span><b>${esc(c.name)}</b>`).join('')}<span>${B?'Salon':'Stadyum'}</span><b>${esc(vn.fullName||(e&&e.venue)||'-')}</b><span>Şehir</span><b>${esc(((vn.address||{}).city)||'-')}</b><span>Seyirci</span><b>${gi.attendance?Number(gi.attendance).toLocaleString('tr-TR'):'-'}</b>${officialRows(j,lg)}<span>Başlama</span><b>${when?when.toLocaleString('tr-TR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'-'}</b></div>`}
  return `${top}${hero}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.dtab===k}" class="${V.dtab===k?'on':''}" onclick="go({dtab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
 function hasLeaders(lg){return !isDS(lg)&&(!isB(lg)||lg==='nba')}
 async function loadLeaders(lg){
@@ -477,7 +472,7 @@ async function toggleNotice(k){
 
 let teamSetting='',historyRows=null,historyError=false,historyLoading=false;
 function teamSettingUI(){
- const teams=S.ft.filter(id=>/^\d+$/.test(id)&&!isB(S.ftl[id])&&!isDS(S.ftl[id]));
+ const teams=S.ft.filter(id=>/^\d+$/.test(id)&&!isB(S.ftl[id]));
  if(!teams.length)return '<p class="mut" style="margin:8px 4px">Takım bazlı ayar için önce bir futbol takımını takip et.</p>';
  if(!teams.includes(teamSetting))teamSetting=teams[0];
  const id=teamSetting,custom=S.teamNoticePrefs?.[id];
@@ -511,7 +506,7 @@ function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg
  <div class="card"><button class="sw ${S.notif&&window.TribunPush?.active()?'on':''}" role="switch" aria-checked="${!!(S.notif&&window.TribunPush?.active())}" onclick="${S.notif&&window.TribunPush?.active()?'stopNotif()':'askNotif()'}">Maç bildirimleri (takip edilen futbol maçları)<i></i></button></div>
  <h2 style="text-align:left;margin:16px 0 6px">Bildirim türleri</h2>
  <div class="card">${NOTICE_OPTIONS.map(([k,n])=>`<button class="sw ${noticeEnabled(k)?'on':''}" role="switch" aria-checked="${noticeEnabled(k)}" ${prefBusy?'disabled':''} onclick="toggleNotice('${k}')">${n}<i></i></button>`).join('')}</div>
- <p class="mut" style="margin:8px 4px">Seçtiğin olaylar, maç bildirimleri açıkken ESPN kapsamındaki takip ettiğin futbol maçları için gönderilir. Yeni Türkiye alt liglerinde arka plan bildirimleri henüz desteklenmiyor. VAR yalnızca veri kaynağı açıkça bildirdiğinde; skor düşüşü ise düzeltme olarak gösterilir.</p>
+ <p class="mut" style="margin:8px 4px">Seçtiğin olaylar takip ettiğin futbol maçları için gönderilir. Türkiye alt liglerinde ücretsiz kota ve veri kapsamı nedeniyle gecikme veya eksik olay olabilir. VAR yalnızca veri kaynağı açıkça bildirdiğinde; skor düşüşü ise düzeltme olarak gösterilir.</p>
  ${teamSettingUI()}
  <button class="pill" onclick="openHistory()">Bildirim geçmişi</button>
  ${S.notif&&window.TribunPush?.active()?`<button class="pill" onclick="testNotif()">Test bildirimi gönder (8 sn)</button>`:''}

@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
-import {isGoal,subscriptionOK,ids,follows,mapEvent,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
+import {isGoal,subscriptionOK,ids,follows,mapEvent,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices,matchIds,dsTeam,dsNotices} from '../lib/goal-push.js';
 const e={id:'12',home:1,away:0,state:'in',hid:'4',aid:'5'};
 test('first observation is not a goal',()=>assert.equal(isGoal(null,e,100),false));
 test('goal, repeat, correction and stale baseline',()=>{
@@ -64,3 +64,13 @@ test('team overrides and direct match precedence',()=>{const s={fm:[],ft:['4'],p
 test('reminder window and deduplication',()=>{const now=1000000,b={...e,state:'pre',kickoff:now+900000};let x=extraNotices(null,b,now,null);assert.equal(x.notices[0].kind,'reminder');assert.equal(extraNotices(x.next,b,now+60000,null).notices.length,0);assert.equal(extraNotices(null,{...b,kickoff:now+900001},now,null).notices.length,0)});
 test('lineups require eleven unique starters for both teams',()=>{const rs=['4','5'].map(id=>({team:{id},roster:Array.from({length:11},(_,i)=>({starter:true,athlete:{id:String(i+1)}}))}));const b={...e,state:'pre',kickoff:99999999};const data=readSummary({rosters:rs,keyEvents:[]},b);assert.equal(data.lineup,true);const x=extraNotices(null,b,1000000,data);assert.equal(x.notices[0].kind,'lineup');assert.equal(extraNotices(x.next,b,1000100,data).notices.length,0);rs[1].roster.pop();assert.equal(readSummary({rosters:rs},b).lineup,false)});
 test('explicit VAR and score correction, never claim inferred VAR',()=>{const now=1000000,b={...e,lg:'tur.1',hn:'A',an:'B',final:false};const review=readSummary({keyEvents:[{id:'1',type:{text:'VAR Review'},clock:{displayValue:"20'"}},{id:'2',type:{text:'Yellow Card'}}]},b);assert.equal(review.reviews.length,1);const old={state:'in',at:now-60000,home:2,away:0,reviewKnown:true,reviewSeen:[]};const x=extraNotices(old,b,now,review);assert.deepEqual(x.notices.map(n=>n.kind),['var','cancel']);assert.equal(x.notices[1].confirmed,false);assert.match(noticePayload(b,x.notices[1]).body,/düzeltmesi/);assert.equal(extraNotices({...old,reviewKnown:false}, {...b,home:2},now,review).notices.length,0)});
+
+test('DS follow IDs and routes',()=>{assert.deepEqual(matchIds(['1','ds123','bad','ds0']),['1','ds123']);assert.equal(dsTeam('990000172700'),true);assert.match(noticePayload({id:'ds123',lg:'ds-tr1',hn:'A',an:'B',home:1,away:0},{kind:'goal',key:'goal-1-0'}).url,/mac-31-ds123$/)});
+test('DS lineups, goal, red card, VAR, correction and end',()=>{
+ const now=1000000,b={id:'ds123',lg:'ds-tr1',hn:'A',an:'B',hid:'99000012',aid:'99000013',state:'pre',home:0,away:0,reds:[],kickoff:now+900000,half:false,final:false,lineup:true,varActive:false};
+ let x=dsNotices(null,b,now);assert.deepEqual(x.notices.map(n=>n.kind),['reminder','lineup']);
+ x=dsNotices(x.next,{...b,state:'in'},now+180000);assert.deepEqual(x.notices.map(n=>n.kind),['start']);
+ x=dsNotices(x.next,{...b,state:'in',home:1,reds:[{key:'99000012:1',team:'99000012'}],varActive:true},now+360000);assert.deepEqual(x.notices.map(n=>n.kind),['goal','red','var']);
+ x=dsNotices(x.next,{...b,state:'in',home:0,reds:[{key:'99000012:1',team:'99000012'}],half:true},now+540000);assert.deepEqual(x.notices.map(n=>n.kind),['half','cancel']);
+ x=dsNotices(x.next,{...b,state:'post',final:true,reds:[{key:'99000012:1',team:'99000012'}]},now+720000);assert.deepEqual(x.notices.map(n=>n.kind),['end']);
+});
