@@ -22,7 +22,8 @@
   const close = d => { if (box) box.remove(); box = null; if (d) snooze(d); };
   const share = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0a7aff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
   function show(text, btn) {
-    if (box || standalone) return;
+    if (box || standalone || later()) return;
+    if (document.querySelector('.splash')) { addEventListener('tribun-enter', () => setTimeout(() => show(text, btn), 1800), {once:true}); return; }
     box = document.createElement('div'); box.className = 'ins'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Tribün uygulamasını yükle');
     box.innerHTML = `<img src="/api/icon?s=192&v=2" alt=""><div style="flex:1;min-width:0"><b>Tribün'ü ana ekrana ekle</b><span>${text}</span></div><div class="ib2">${btn ? '<button class="y">Yükle</button>' : ''}<button class="n">${btn ? 'Sonra' : 'Tamam'}</button></div>`;
     document.body.append(box);

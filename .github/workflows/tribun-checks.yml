@@ -1,0 +1,20 @@
+name: Tribun checks
+on:
+  push:
+    branches: [feature/tribun-2-0, main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Syntax checks
+        run: find . -name '*.js' -not -path './.git/*' -not -path './node_modules/*' -print0 | xargs -0 -n 1 node --check
+      - name: Regression tests
+        run: node --test tests/*.test.js
