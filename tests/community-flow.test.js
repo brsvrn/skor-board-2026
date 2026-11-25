@@ -7,7 +7,7 @@ test('community flow validates group ownership, vote, scoring and deletion',asyn
  const set=(k)=>{if(!sets.has(k))sets.set(k,new Set());return sets.get(k)};
  let final=false;const date=new Date(Date.now()+3600000).toISOString();
  global.fetch=async (url,opts)=>{
-  if(String(url).startsWith('https://site.api.espn.com/'))return {ok:true,json:async()=>({header:{competitions:[{id:'123',date,status:{type:{state:final?'post':'pre',completed:final,name:final?'STATUS_FINAL':'STATUS_SCHEDULED'}},competitors:[{homeAway:'home',score:final?'2':'0',team:{displayName:'A'}},{homeAway:'away',score:final?'1':'0',team:{displayName:'B'}}]}]}})};
+  if(String(url).startsWith('https://site.api.espn.com/'))return {ok:true,json:async()=>({header:{competitions:[{id:new URL(url).searchParams.get('event'),date,status:{type:{state:final?'post':'pre',completed:final,name:final?'STATUS_FINAL':'STATUS_SCHEDULED'}},competitors:[{homeAway:'home',score:final?'2':'0',team:{displayName:'A'}},{homeAway:'away',score:final?'1':'0',team:{displayName:'B'}}]}]}})};
   assert.equal(url,'https://mock-redis.invalid');const [cmd,k,...args]=JSON.parse(opts.body);let result;
   if(cmd==='SET'){if(args.includes('NX')&&values.has(k))result=null;else{values.set(k,args[0]);result='OK'}}
   else if(cmd==='GET')result=values.get(k)??null;
@@ -37,8 +37,9 @@ test('community flow validates group ownership, vote, scoring and deletion',asyn
  assert.equal((await call(B,'predict',{code,...match,h:2,a:1})).status,200);
  assert.equal((await call(B,'poll',{...match,choice:'home'})).body.counts.home,1);
  assert.equal((await call(B,'poll',{...match,choice:'away'})).body.counts.home,0);
- final=true;assert.equal((await call(B,'predict',{code,...match,h:3,a:1})).status,409);
- const board=await call(A,'board',{code});assert.equal(board.body.board.find(x=>x.name==='B').points,3);
+ const second={lg:'eng.1',id:'124'};assert.equal((await call(A,'add',{code,...second})).status,200);assert.equal((await call(B,'predict',{code,...second,h:2,a:1})).status,200);assert.equal((await call(A,'board',{code})).body.matches.length,2);
+ final=true;assert.equal((await call(B,'predict',{code,...match,h:3,a:1})).status,409);assert.equal((await call(B,'predict',{code,...second,h:3,a:1})).status,409);
+ const board=await call(A,'board',{code});assert.equal(board.body.board.find(x=>x.name==='B').points,6);
  assert.equal((await call(B,'delete')).status,200);
  assert.equal((await call(B,'board',{code})).status,403);
  assert.equal((await call(A,'poll',match)).body.counts.away,0);
