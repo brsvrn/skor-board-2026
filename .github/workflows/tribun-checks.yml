@@ -1,7 +1,7 @@
 name: Tribun checks
 on:
   push:
-    branches: [feature/tribun-2-0, main]
+    branches: [feature/tribun-2-0, feature/tribun-prediction-challenge, main]
   pull_request:
     branches: [main]
 permissions:
