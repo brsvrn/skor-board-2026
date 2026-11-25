@@ -296,7 +296,7 @@ function broadcastRows(j){
  const names=[...new Set(items.flatMap(x=>[x.media?.shortName,x.media?.name,x.name,...(Array.isArray(x.names)?x.names:[])].filter(v=>typeof v==='string'&&v)))];
  return names.length?'<span>TV / yayın</span><b>'+esc(names.join(', '))+'<small class="mut" style="display:block">Yayın bölgesi değişebilir; Türkiye yayını garanti değildir.</small></b>':'<span>TV / yayın</span><b>Kaynakta yayın bilgisi yok</b>';
 }
-function applyTheme(){document.documentElement.dataset.theme=['light','dark','system'].includes(S.theme)?S.theme:'system'}
+function applyTheme(){const theme=['light','dark','system'].includes(S.theme)?S.theme:'system';document.documentElement.dataset.theme=theme;const dark=theme==='dark'||theme==='system'&&matchMedia('(prefers-color-scheme: dark)').matches;document.querySelector('meta[name="theme-color"]')?.setAttribute('content',dark?'#121620':'#ececec')}
 function setTheme(v){if(!['light','dark','system'].includes(v))return;S.theme=v;applyTheme();save();render()}
 function themeUI(){return '<h2 style="text-align:left">Görünüm</h2><div class="seg">'+[['light','Açık'],['dark','Koyu'],['system','Sistem']].map(([k,n])=>'<button class="'+((S.theme||'system')===k?'on':'')+'" onclick="setTheme(\''+k+'\')">'+n+'</button>').join('')+'</div>'}
 function syncUI(){
@@ -679,10 +679,11 @@ function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg
  <div class="card"><button class="row" onclick="legal('g')">Gizlilik politikası<span>›</span></button><button class="row" onclick="legal('s')">Kullanım şartları<span>›</span></button></div>
  ${S.user||S.fm.length||S.ft.length||S.bfm.length||S.bft.length?'<button class="pill r" onclick="askDel()">Verilerimi sil</button>':''}`}
 function askDel(){modal(`<h1 style="font-size:30px">Veriler silinsin mi?</h1><p style="margin:12px 0">Profil adın, takip ettiğin maç ve takımlar bu cihazdan kalıcı olarak silinir.</p><button class="pill r" onclick="delAll()">Sil</button><button class="pill" onclick="closeM()">Vazgeç</button>`)}
-async function delAll(){if(S.syncCode){try{await syncFavorites('delete',S.syncCode)}catch{toast('Bulut kaydı silinemedi.');return}}try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{await window.TribunHistory?.clear();historyRows=[]}catch{toast('Bildirim geçmişi silinemedi. Tekrar dene.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},fml:{},bfm:[],bft:[],bftn:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});save();closeM();go({tab:'usr'})}
+async function delAll(){if(S.syncCode){try{await syncFavorites('delete',S.syncCode)}catch{toast('Bulut kaydı silinemedi.');return}}try{await window.TribunPush?.disable()}catch(e){toast('Sunucu kaydı silinemedi; bağlantını kontrol et.');return}try{await window.TribunHistory?.clear();historyRows=[]}catch{toast('Bildirim geçmişi silinemedi. Tekrar dene.');return}try{localStorage.removeItem('tribun');localStorage.removeItem('mm2')}catch(e){}for(const k of Object.keys(S))delete S[k];Object.assign(S,{fm:[],ft:[],ftl:{},fml:{},bfm:[],bft:[],bftn:{},sort:'lig',sport:'soccer',slg:'tur.1',slgB:'nba',seen:1});applyTheme();save();closeM();go({tab:'usr'})}
 Object.assign(window,{toggleBasket,XQuery,searchType,runSearch,openLeague,openEntityProfile,entityExtra,loadDirectory,selectNews,loadNews,loadTransfers,retryDetail,setTheme,generateSync,copySync,syncAction,setQ,setSort,openT,go,menu,closeM,enterApp,setDay,setSport,openM,togM,togT,setSL,retryLeaders,askNotif,stopNotif,testNotif,toggleNotice,selectNoticeTeam,toggleTeamCustom,toggleTeamNotice,openHistory,loadHistory,clearHistory,editName,legal,askDel,delAll,toast,save,render,beep,S,$});
 const r0=readHash();if(r0){V.splash=false;Object.assign(V,r0);if(V.match){S.sport=sp(V.match.lg);loadSum(V.match.lg,V.match.id)}if(V.team){S.sport=sp(V.team.lg);loadTeam(V.team.lg,V.team.id)}}
 applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(!S.theme||S.theme==='system')applyTheme()});
 if(migrateBasket())save();
 loadTR();
 window.TribunPush?.sync(S,true);

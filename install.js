@@ -12,10 +12,10 @@
   const mobile = ios || /android|mobile/i.test(ua);
   if (standalone || later()) return;
   const st = document.createElement('style');
-  st.textContent = `.ins{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));width:calc(100% - 24px);max-width:456px;z-index:20;background:#fff;color:#111;border-radius:20px;box-shadow:0 12px 32px rgba(0,0,0,.22);padding:14px;display:flex;gap:12px;align-items:center;font:13px/1.35 Inter,system-ui,sans-serif;animation:insUp .35s ease-out}
-  .ins img{width:48px;height:48px;border-radius:12px;flex:none}.ins b{display:block;font-size:14px;margin-bottom:2px}.ins span{color:#555}
+  st.textContent = `.ins{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));width:calc(100% - 24px);max-width:456px;z-index:20;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:20px;box-shadow:0 12px 32px rgba(0,0,0,.22);padding:14px;display:flex;gap:12px;align-items:center;font:13px/1.35 Inter,system-ui,sans-serif;animation:insUp .35s ease-out}
+  .ins img{width:48px;height:48px;border-radius:12px;flex:none}.ins b{display:block;font-size:14px;margin-bottom:2px}.ins span{color:var(--mut)}
   .ins .ib2{display:flex;flex-direction:column;gap:6px;flex:none}.ins button{font:inherit;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.3px;border:0;border-radius:99px;padding:10px 14px;cursor:pointer;min-height:40px}
-  .ins .y{background:#111;color:#fff}.ins .n{background:#eee;color:#555}.ins svg{vertical-align:-3px}
+  .ins .y{background:var(--active);color:var(--active-text)}.ins .n{background:var(--control);color:var(--control-text)}.ins svg{vertical-align:-3px}
   @keyframes insUp{from{opacity:0;transform:translate(-50%,20px)}}@media(prefers-reduced-motion:reduce){.ins{animation:none}}`;
   document.head.append(st);
   let box = null, evt = null;
