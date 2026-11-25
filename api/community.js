@@ -64,7 +64,8 @@ export default async function handler(req,res){
  if(b.action==='create'){
   const name=str(b.name),groupName=str(b.groupName);if(!name||!groupName)return res.status(400).json({error:'name'});
   const id=randomBytes(12).toString('hex'),key=P+'group:'+id,group={name:groupName,owner:member,created:Date.now(),ends:Date.now()+7*86400000};
-  await indexMember(memberKey+':groups',id,20);await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);return res.json({code:id,name:groupName,ends:group.ends});
+  let initial=null;if(b.match!==undefined){const m=b.match;if(!m||!validMatch(m.lg,m.id)||!scoreOK(m.h)||!scoreOK(m.a))return res.status(400).json({error:'prediction'});const e=await fixture(m.lg,m.id,true);if(!e.pre||Date.now()>=e.kickoff||e.kickoff>group.ends)return res.status(409).json({error:'closed'});initial={e,h:m.h,a:m.a}}
+  await indexMember(memberKey+':groups',id,20);await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);if(initial){const {e,h,a}=initial,mk=e.lg+':'+e.id;await kv('EVAL',addLua,1,key+':matches',mk,JSON.stringify({lg:e.lg,id:e.id,home:e.home,away:e.away,kickoff:e.kickoff}),days);await kv('HSET',key+':pred:'+mk,member,JSON.stringify({h,a}));await kv('EXPIRE',key+':pred:'+mk,days)}return res.json({code:id,name:groupName,ends:group.ends});
  }
  if(!code(b.code))return res.status(400).json({error:'code'});
  const key=P+'group:'+b.code,g=await get(key);if(!g)return res.status(404).json({error:'not_found'});
