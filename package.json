@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "web-push": "3.6.7",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "cheerio": "1.0.0"
   }
 }
