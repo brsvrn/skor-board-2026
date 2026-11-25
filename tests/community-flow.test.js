@@ -28,6 +28,7 @@ test('community flow validates group ownership, vote, scoring and deletion',asyn
  };
  t.after(()=>{global.fetch=oldFetch;if(oldUrl===undefined)delete process.env.KV_REST_API_URL;else process.env.KV_REST_API_URL=oldUrl});
  const A='a'.repeat(64),B='b'.repeat(64),C='c'.repeat(64),call=async(token,action,data={})=>{let status=200,body;await handler({method:'POST',headers:{origin:'https://test.invalid',host:'test.invalid'},body:{token,action,...data}},{setHeader(){},status(n){status=n;return this},json(x){body=x;return this}});return {status,body}};
+ const challenge=await call(A,'create',{name:'A',groupName:'Challenge',match:{lg:'eng.1',id:'123',h:2,a:1}});assert.equal(challenge.status,200);const invited=await call(B,'join',{code:challenge.body.code,name:'B'});assert.equal(invited.status,200);const cb=await call(A,'board',{code:challenge.body.code});assert.equal(cb.body.matches[0].mine.h,2);assert.equal(cb.body.board.length,2);
  const g=await call(A,'create',{name:'A',groupName:'Friends'});assert.equal(g.status,200);const code=g.body.code,match={lg:'eng.1',id:'123'};
  assert.equal((await call(B,'join',{code,name:'B'})).status,200);
  assert.equal((await call(C,'board',{code})).status,403);
