@@ -6,7 +6,10 @@
  function token(){let t=storage.get(KEY);if(!t){t=Array.from(crypto.getRandomValues(new Uint8Array(32)),x=>x.toString(16).padStart(2,'0')).join('');storage.set(KEY,t)}return t}
  const kinds=['goal','start','half','end','red','reminder','lineup','var','cancel'];
  const prefs=p=>Object.fromEntries(kinds.map(k=>[k,typeof p?.[k]==='boolean'?p[k]:k==='goal']));
- const values=s=>({fm:(s.fm||[]).map(String),ft:(s.ft||[]).filter(id=>!['nba','wnba','mens-college-basketball'].includes(s.ftl?.[id])&&!String(s.ftl?.[id]||'').startsWith('as-')).map(String),prefs:prefs(s.noticePrefs),teamPrefs:Object.fromEntries((s.ft||[]).filter(id=>s.teamNoticePrefs?.[id]).map(id=>[id,prefs(s.teamNoticePrefs[id])]))});
+ const basketL=['nba','wnba','mens-college-basketball','as-el','as-ec'];
+ const allB=lg=>basketL.includes(lg)||String(lg||'').startsWith('as-');
+ const bkeys=(ids,ls)=>ids.filter(id=>basketL.includes(ls?.[id])).map(id=>ls[id]+':'+id);
+ const values=s=>({fm:(s.fm||[]).filter(id=>!allB(s.fml?.[id])&&!/^el[eu]/.test(id)).map(String),ft:(s.ft||[]).filter(id=>!allB(s.ftl?.[id])).map(String),bfm:bkeys(s.fm||[],s.fml),bft:bkeys(s.ft||[],s.ftl),bprefs:Object.fromEntries(['start','half','end','reminder','period'].map(k=>[k,typeof s.basketPrefs?.[k]==='boolean'?s.basketPrefs[k]:k==='end'])),prefs:prefs(s.noticePrefs),teamPrefs:Object.fromEntries((s.ft||[]).filter(id=>!allB(s.ftl?.[id])&&s.teamNoticePrefs?.[id]).map(id=>[id,prefs(s.teamNoticePrefs[id])]))});
  const key=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/').padEnd(Math.ceil(s.length/4)*4,'=')),x=>x.charCodeAt(0));
  function serial(f){const n=queue.then(f,f);queue=n.catch(()=>{});return n}
  async function request(a,b){const r=await fetch('/api/push?action='+a,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b),keepalive:a==='test'||a==='subscribe'});if(!r.ok)throw Error('Bildirim sunucusuna ulaşılamadı ('+r.status+').');return r.json()}

@@ -1,10 +1,12 @@
 import webpush from 'web-push';
 import {leagues,hash,equal,tokenOK,subscriptionOK,ids,matchIds,dsTeam,dsNotices,mapEvent,follows,shouldScan,nextPoll,noticePrefs,matchNotices,noticePayload,teamPrefs,wants,hasNotices,readSummary,extraNotices} from '../lib/goal-push.js';
 import {fixtures as dsFixtures,dsPushEvent,dsDelay} from '../lib/ds-data.js';
+import {BASKET_LEAGUES,basketPrefs,basketKeys,basketFollows,basketWants,mapBasket,mapEuroBasket,basketballNotices,basketDelay,basketPayload} from '../lib/basket-push.js';
+import {elDay} from './bball.js';
 const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
-async function markTick(c,now,state,dsState){const prior=parse(await redis(c,'GET',STATUS));await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state,dsState:dsState==='cached'?(prior?.dsState||'cached'):dsState||prior?.dsState||'idle'}),'EX',86400);}
+async function markTick(c,now,state,dsState,basketState){const prior=parse(await redis(c,'GET',STATUS));await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state,dsState:dsState==='cached'?(prior?.dsState||'cached'):dsState||prior?.dsState||'idle',basketState:basketState==='cached'?(prior?.basketState||'cached'):basketState||prior?.basketState||'idle'}),'EX',86400);}
 async function redis(c,...cmd){
  const r=await fetch(c.url,{method:'POST',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},body:JSON.stringify(cmd),signal:AbortSignal.timeout(6000)});
  const j=await r.json();if(!r.ok||j.error)throw Error('redis');return j.result;
@@ -25,20 +27,37 @@ async function scores(lg,now){
  const events=new Map();for(const e of batches.flat()){const x=mapEvent(e,lg);if(x&&!events.has(x.id))events.set(x.id,x)}
  return [...events.values()];
 }
+async function basketScores(lg,now){
+ const local=now+3*3600000,dates=[date(local),date(local-86400000)];
+ const batches=await Promise.all(dates.map(async d=>{const r=await fetch('https://site.api.espn.com/apis/site/v2/sports/basketball/'+lg+'/scoreboard?dates='+d+'&limit=200',{headers:{accept:'application/json'},signal:AbortSignal.timeout(7000)});if(!r.ok)throw Error('basket_upstream');const j=await r.json();if(!Array.isArray(j.events))throw Error('basket_data');return j.events}));
+ return [...new Map(batches.flat().map(e=>mapBasket(e,lg)).filter(Boolean).map(e=>[e.id,e])).values()];
+}
+async function euroScores(now){const local=now+3*3600000,d=new Date(local).toISOString().slice(0,10),y=new Date(local-86400000).toISOString().slice(0,10);const results=await Promise.all([elDay(d),elDay(y)]);if(!results.some(x=>x.ok.length))throw Error('euro_upstream');return {events:[...new Map(results.flatMap(x=>x.events).map(mapEuroBasket).filter(Boolean).map(e=>[e.lg+':'+e.id,e])).values()],ok:[...new Set(results.flatMap(x=>x.ok))]};}
 const putLua="if not redis.call('HGET',KEYS[1],ARGV[1]) and redis.call('HLEN',KEYS[1])>=100 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);return 1";
 async function tick(c){
  if(!await redis(c,'SET',P+'lock','1','NX','EX',55))return {skipped:true};
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
- for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if((s.fm.length||s.ft.length)&&hasNotices(s))subs.push([id,s])}
+ for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if(((s.fm.length||s.ft.length)&&hasNotices(s))||((s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean)))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
  if(!subs.length){await markTick(c,now,'idle','idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
- const espnSubs=subs.filter(([,s])=>s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id)));
- const dsSubs=subs.filter(([,s])=>s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam));
+ const espnSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id))));
+ const dsSubs=subs.filter(([,s])=>hasNotices(s)&&(s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam)));
  const due=espnSubs.length?leagues.filter(l=>shouldScan(parse(previous[l]),now,changed)):[];
  const dsOld=parse(previous['ds-all'])||{},dsDue=dsSubs.length&&process.env.DATASPORTS_API_KEY&&shouldScan(dsOld,now,Math.max(...dsSubs.map(([,s])=>Number(s.changed)||0)));
- if(!due.length&&!dsDue){await markTick(c,now,'ok',dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ const bsubs=subs.filter(([,s])=>(s.bfm?.length||s.bft?.length)&&Object.values(basketPrefs(s.bprefs)).some(Boolean));
+ const bDue=BASKET_LEAGUES.filter(l=>bsubs.some(([,s])=>[...(s.bfm||[]),...(s.bft||[])].some(k=>k.startsWith(l+':')))&&shouldScan(parse(previous['basket:'+l]),now,Math.max(...bsubs.map(([,s])=>Number(s.changed)||0))));
+ if(!due.length&&!dsDue&&!bDue.length){await markTick(c,now,'ok',dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle',bsubs.length?'cached':'idle');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ const basketWork=Promise.allSettled(bDue.filter(l=>!l.startsWith('as-')).map(async l=>({lg:l,events:await basketScores(l,now)})));
+ const euroWork=bDue.some(l=>l.startsWith('as-'))?euroScores(now).catch(()=>null):Promise.resolve(null);
  const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
+ const br=await basketWork,er=await euroWork;let basketState=bsubs.length?'cached':'idle',bGood=0;
+ for(const lg of bDue){const events=lg.startsWith('as-')?(er?.ok.includes(lg)?er.events.filter(e=>e.lg===lg):null):br.find(x=>x.status==='fulfilled'&&x.value.lg===lg)?.value.events;
+  const k='basket:'+lg,old=parse(previous[k])||{};if(!events){updates.push(k,JSON.stringify({...old,__scanAt:now,__nextPoll:now+5*60000}));continue}bGood++;
+  const next={__scanAt:now,__nextPoll:now+basketDelay(events,bsubs.map(([,s])=>s),now)};
+  for(const e of events.filter(e=>bsubs.some(([,s])=>basketFollows(s,e)))){const before=old[e.id],ob=basketballNotices(before,e,now);next[e.id]=ob.next;for(const n of ob.notices)for(const [id,s] of bsubs)if((n.kind==='reminder'||s.changed<=(before?.at||0))&&basketWants(s,e,n.kind))out.push({id,s,e,n,basket:true});}
+  updates.push(k,JSON.stringify(next));}
+ if(bDue.length)basketState=bGood===bDue.length?'ok':bGood?'partial':'unavailable';
  let dsState=dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle';
  if(dsDue){try{
  const today=new Date(now).toISOString().slice(0,10),yesterday=new Date(now-86400000).toISOString().slice(0,10);
@@ -70,14 +89,14 @@ async function tick(c){
  if(updates.length)await redis(c,'HSET',STATE,...updates);
  webpush.setVapidDetails(c.subject,c.pub,c.priv);
  let sent=0,failed=0;const stale=new Set();
- for(let i=0;i<Math.min(out.length,100);i+=20)await Promise.all(out.slice(i,Math.min(i+20,100)).map(async({id,s,e,n})=>{
-  try{await webpush.sendNotification(s.subscription,JSON.stringify(noticePayload(e,n)),{TTL:120,urgency:'high',timeout:3500});sent++}
+ for(let i=0;i<Math.min(out.length,100);i+=20)await Promise.all(out.slice(i,Math.min(i+20,100)).map(async({id,s,e,n,basket})=>{
+  try{await webpush.sendNotification(s.subscription,JSON.stringify(basket?basketPayload(e,n):noticePayload(e,n)),{TTL:120,urgency:'high',timeout:3500});sent++}
   catch(err){failed++;if(err.statusCode===404||err.statusCode===410)stale.add(id)}
  }));
  if(stale.size)await redis(c,'HDEL',SUB,...stale);
  const good=result.filter(x=>x.status==='fulfilled').length;
- await markTick(c,now,good===due.length?(dsState==='budget'||dsState==='unavailable'?'partial':'ok'):good?'partial':'upstream_error',dsState);
- return {checked:subs.length,leagues:good,dsState,sent,failed,limited:Math.max(0,out.length-100)};
+ await markTick(c,now,good===due.length?(dsState==='budget'||dsState==='unavailable'||basketState==='partial'||basketState==='unavailable'?'partial':'ok'):good?'partial':'upstream_error',dsState,basketState);
+ return {checked:subs.length,leagues:good,dsState,basketState,sent,failed,limited:Math.max(0,out.length-100)};
 }
 export default async function handler(req,res){
  const c=cfg(),action=String(req.query.action||'config');
@@ -91,7 +110,7 @@ export default async function handler(req,res){
   if(action==='status'&&req.method==='GET'){
    const s=parse(await redis(c,'GET',STATUS));
    res.setHeader('Cache-Control','s-maxage=30, stale-while-revalidate=30');
-   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started',dsState:s?.dsState||'idle',dsConfigured:!!process.env.DATASPORTS_API_KEY});
+   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started',dsState:s?.dsState||'idle',dsConfigured:!!process.env.DATASPORTS_API_KEY,basketState:s?.basketState||'idle'});
   }
   if(action==='tick'){
    if(req.method!=='POST')return reply(res,405,{error:'method'});
@@ -122,9 +141,9 @@ export default async function handler(req,res){
    await redis(c,'SET',k,'0','NX','EX',3700);
    if(Number(await redis(c,'INCR',k))>20)return reply(res,429,{error:'rate_limit'});
   }
-  const now=Date.now(),fm=matchIds(b.fm),ft=ids(b.ft),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
-  const same=old&&JSON.stringify([old.fm,old.ft,noticePrefs(old.prefs),teamPrefs(old.teamPrefs,old.ft||[]),old.subscription])===JSON.stringify([fm,ft,prefs,teams,subscription]);
-  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,prefs,teamPrefs:teams,seen:now,changed:same?old.changed:now}));
+  const now=Date.now(),fm=matchIds(b.fm),ft=ids(b.ft),bfm=basketKeys(b.bfm),bft=basketKeys(b.bft),bprefs=basketPrefs(b.bprefs),prefs=noticePrefs(b.prefs),teams=teamPrefs(b.teamPrefs,ft),subscription={endpoint:b.subscription.endpoint,keys:{p256dh:b.subscription.keys.p256dh,auth:b.subscription.keys.auth}};
+  const same=old&&JSON.stringify([old.fm,old.ft,old.bfm||[],old.bft||[],basketPrefs(old.bprefs),noticePrefs(old.prefs),teamPrefs(old.teamPrefs,old.ft||[]),old.subscription])===JSON.stringify([fm,ft,bfm,bft,bprefs,prefs,teams,subscription]);
+  const ok=await redis(c,'EVAL',putLua,1,SUB,id,JSON.stringify({subscription,fm,ft,bfm,bft,bprefs,prefs,teamPrefs:teams,seen:now,changed:same?old.changed:now}));
   return reply(res,ok?200:429,ok?{ok:true}:{error:'capacity'});
  }catch{return reply(res,502,{error:'push_service_unavailable'})}
 }

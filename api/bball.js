@@ -45,10 +45,10 @@ function elGame(g, lg) {
   const parts = x => { const p = (x && x.partials) || {}; return [p.partials1, p.partials2, p.partials3, p.partials4, ...Object.values(p.extraPeriods || {})].filter(v => v != null); };
   const sd = x => { const c = (x && x.club) || {}; return { id: c.code || '', nm: c.abbreviatedName || c.editorialName || c.name || '', ab: c.tvCode || c.code || '', logo: (c.images || {}).crest || '',
     sc: state === 'pre' ? '' : String((x && x.score) ?? ''), ls: state === 'pre' ? [] : parts(x) }; };
-  return { id: 'el' + String(g.identifier || g.gameCode).replace(/[^a-z0-9]/gi, '').toLowerCase(), lg, date: t, state, clock: '', short: state === 'post' ? 'FT' : state === 'in' ? 'Canlı' : 'NS',
+  return { verifiedFinal:g.played===true,verifiedLive:g.played!==true&&now>=t&&tot>0&&now-t<4*3600e3,id: 'el' + String(g.identifier || g.gameCode).replace(/[^a-z0-9]/gi, '').toLowerCase(), lg, date: t, state, clock: '', short: state === 'post' ? 'FT' : state === 'in' ? 'Canlı' : 'NS',
     h: sd(g.local), a: sd(g.road), venue: (g.venue || {}).name || '' };
 }
-async function elDay(date) {
+export async function elDay(date) {
   const dateObj=new Date(date+'T12:00:00Z');
   const y=dateObj.getUTCMonth()>=6?dateObj.getUTCFullYear():dateObj.getUTCFullYear()-1, events = [], ok = [];
   await Promise.all(Object.entries(COMP).map(async ([lg, c]) => {
