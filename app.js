@@ -7,8 +7,9 @@ const LEAGUES=[
  ['ksa.1','Suudi Pro Lig','#0e7c3a','soccer'],['usa.1','MLS','#001f5b','soccer'],['bra.1','Brezilya Serie A','#009c3b','soccer'],['arg.1','Arjantin Ligi','#2b7bc0','soccer'],['conmebol.libertadores','Libertadores','#b8860b','soccer'],
  ['nba','NBA','#1d428a','basketball'],['as-tr','Türkiye Süper Ligi','#e30a17','basketball','as'],['as-el','EuroLeague','#f05a28','basketball','as'],['as-ec','EuroCup','#0a5ea8','basketball','as'],['as-bcl','Şampiyonlar Ligi','#1b2a5e','basketball','as'],
  ['as-es','İspanya ACB','#c8102e','basketball','as'],['as-it','İtalya Lega A','#0b6e3c','basketball','as'],['as-de','Almanya BBL','#111111','basketball','as'],['as-fr','Fransa LNB','#002395','basketball','as'],['as-gr','Yunanistan Ligi','#0d5eaf','basketball','as'],
- ['mens-college-basketball','NCAA Erkekler','#003087','basketball'],['wnba','WNBA','#fa4d00','basketball']];
+ ['mens-college-basketball','NCAA Erkekler','#003087','basketball'],['wnba','WNBA','#fa4d00','basketball'],['ds-tr1','Trendyol 1. Lig','#e30a17','soccer','ds'],['ds-tr2','Nesine 2. Lig','#e30a17','soccer','ds'],['ds-tr3','Nesine 3. Lig','#e30a17','soccer','ds'],['ds-cup','Türkiye Kupası','#e30a17','soccer','ds']];
 const LGN=Object.fromEntries(LEAGUES.map((l,i)=>[l[0],{slug:l[0],name:l[1],color:l[2],sport:l[3],src:l[4]||'espn',i}]));
+const isDS=lg=>(LGN[lg]||{}).src==='ds';
 const isAS=lg=>(LGN[lg]||{}).src==='as';
 const SPORTS=[['soccer','Futbol'],['basketball','Basketbol']];
 const WC=[['Final','ESP','ARG',1,0,'Uzatmalarda · Ferran Torres 106\''],['Üçüncülük','ENG','FRA',6,4,'Mbappé 2 gol, Altın Ayakkabı'],['Yarı final','FRA','ESP',0,2,'Oyarzabal (P) 22\', Porro 58\''],['Yarı final','ENG','ARG',1,2,'Gordon 55\'; Enzo 85\', Lautaro 90+2\''],['Çeyrek final','FRA','MAR',2,0,''],['Çeyrek final','ESP','BEL',2,1,''],['Çeyrek final','NOR','ENG',1,2,'Uzatmalarda'],['Çeyrek final','ARG','SUI',3,1,'Uzatmalarda']];
@@ -28,7 +29,7 @@ const hm=d=>pad(d.getHours())+':'+pad(d.getMinutes());
 const dayAt=o=>{const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+o);return d};
 const ymd=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
 const GUN=['PAZ','PZT','SAL','ÇAR','PER','CUM','CMT'];
-const okImg=u=>/^https:\/\/(a\.espncdn\.com|media\.api-sports\.io|media-cdn\.incrowdsports\.com|media-cdn\.cortextech\.io)\//.test(String(u||''));
+const okImg=u=>/^https:\/\/(a\.espncdn\.com|media\.api-sports\.io|media-cdn\.incrowdsports\.com|media-cdn\.cortextech\.io|cdn\.datasportsapi\.com)\//.test(String(u||''));
 const crest=(logo,ab)=>`<span class="crest">${ab?`<b>${esc(String(ab).slice(0,3))}</b>`:''}${okImg(logo)?`<img src="${esc(logo)}" alt="" loading="lazy" onerror="this.remove()">`:''}</span>`;
 const col=h=>{if(!/^[0-9a-f]{6}$/i.test(h||''))return null;const n=parseInt(h,16),l=(.299*(n>>16)+.587*(n>>8&255)+.114*(n&255))/255;return l>.75?null:'#'+h};
 const trS=(s,lg)=>{s=String(s||'');let m;const P=lg==='mens-college-basketball'?'Y':'Ç';if(m=s.match(/^(.+) - (\d)(st|nd|rd|th)$/))return m[2]+'. '+P+' '+m[1];if(m=s.match(/^End of (\d)(st|nd|rd|th)/))return m[1]+'. '+P+' sonu';if(m=s.match(/^Q([1-4])$/))return m[1]+'. Ç';if(m=s.match(/^(.+) - (\d?)OT$/))return 'Uzt. '+m[1];return trS0(s)};
@@ -78,7 +79,7 @@ const CT=[[/^Lineups are announced and players are warming up\.?$/,()=>'Kadrolar
  [/^VAR Decision: (.+?)\.?$/,(m,d)=>'VAR kararı: '+d.replace(/No Goal/i,'Gol yok').replace(/No Penalty/i,'Penaltı yok').replace(/^Goal/i,'Gol').replace(/Penalty/i,'Penaltı').replace(/Red Card/i,'Kırmızı kart').replace(/Yellow Card/i,'Sarı kart')+'.']];
 const EN=/\b(the|is|by|with|from|and|shot|misses|attempt|wins|replaces|caught|corner|half|ends|begins|delay)\b/i;
 function trC(t){t=String(t||'').trim();for(const [re,fn] of CT){const m=t.match(re);if(m){const o=fn(...m);if(o&&!EN.test(o.replace(/\([^)]*\)/g,'')))return o;return null}}return EN.test(t)?null:t}
-const actL=()=>LEAGUES.filter(l=>l[3]===S.sport);
+const actL=()=>LEAGUES.filter(l=>l[3]===S.sport).sort((a,b)=>(isDS(a[0])?1:LGN[a[0]].i===0?0:2)-(isDS(b[0])?1:LGN[b[0]].i===0?0:2));
 const isB=lg=>(LGN[lg]||{}).sport==='basketball';
 async function api(path){
  for(const u of ['/api/espn?p='+encodeURIComponent(path),'https://site.api.espn.com/apis/'+path]){
@@ -103,12 +104,41 @@ async function loadDay(){
  const key=ymd(dayAt(V.off))+S.sport;D.state=D.ev.length&&D.key===key?'ok':'loading';D.key=key;
  if(D.state==='loading'){D.ev=[];if(V.match==null&&(V.tab==='home'||V.tab==='fav'))render()}
  const jobs=actL().filter(l=>(l[4]||'espn')==='espn').map(([lg])=>api(`site/v2/sports/${sp(lg)}/${lg}/scoreboard?dates=${key.slice(0,8)}`).then(j=>j&&Array.isArray(j.events)?j.events.map(e=>mapEv(e,lg)):null));
- if(S.sport==='basketball')jobs.push(loadAS(key.slice(0,8)));
+ if(S.sport==='basketball')jobs.push(loadAS(key.slice(0,8)));else jobs.push(loadDS(key.slice(0,8)));
  const res=await Promise.all(jobs);
  if(D.key!==key)return;
  if(res.every(r=>r===null)){D.state='off'}else{const ev=res.flat().filter(Boolean);notifyGoals(ev);D.ev=ev;D.state='ok';D.at=new Date()}
  if(V.match==null&&!V.team)refresh();syncPoll()}
 function refresh(){const a=document.activeElement;if(V.tab==='home'&&!V.match&&!V.team&&a&&a.id==='q'&&$('#lst')){$('#lst').innerHTML=listBody()}else render()}
+
+async function dsApi(q){try{const r=await fetch('/api/ds?'+new URLSearchParams(q));const j=await r.json();if(!r.ok)throw Error(j.error||'upstream');return j}catch(e){D.dsOff=e.message;return null}}
+function dsEvent(e){return {...e,date:new Date(e.date)}}
+async function loadDS(k){
+ const d=k.slice(0,4)+'-'+k.slice(4,6)+'-'+k.slice(6,8),j=await dsApi({action:'day',date:d});
+ if(!j||!Array.isArray(j.events))return [];
+ D.dsOff='';D.dsSuper=j.super||[];D.dsDate=d;
+ return j.events.map(dsEvent);
+}
+function dsSummary(e){
+ const cs=[['home',e.h],['away',e.a]].map(([homeAway,t])=>({homeAway,score:t.sc,team:{id:t.id,displayName:t.nm,shortDisplayName:t.nm,abbreviation:t.ab,logos:t.logo?[{href:t.logo}]:[]}}));
+ return {ds:true,header:{competitions:[{date:e.date,status:{type:{state:e.state,shortDetail:e.short},displayClock:e.clock},competitors:cs}]},gameInfo:{venue:{fullName:e.venue,address:{city:typeof e.city==='string'?e.city:''}},attendance:e.attendance,officials:e.referee?[{displayName:e.referee,position:{name:'Referee'}}]:[]},coaches:e.coaches||[]};
+}
+function matchName(s){return String(s||'').toLocaleLowerCase('tr').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ı/g,'i').replace(/[^a-z0-9]/g,'')}
+async function enrichSuper(j){
+ const c=j?.header?.competitions?.[0],d=c?.date;if(!d)return;
+ const day=new Date(d).toISOString().slice(0,10);
+ let rows=D.dsDate===day?D.dsSuper:null;
+ if(!rows){const x=await dsApi({action:'day',date:day});rows=x?.super||[]}
+ const h=c.competitors?.find(x=>x.homeAway==='home')?.team,a=c.competitors?.find(x=>x.homeAway==='away')?.team;
+ const names=t=>[t?.displayName,t?.shortDisplayName,t?.name].filter(Boolean).map(matchName);
+ const both=(t,n)=>names(t).includes(matchName(n));
+ const match=rows.filter(e=>Math.abs(Date.parse(e.date)-Date.parse(d))<=600000&&both(h,e.rawHome)&&both(a,e.rawAway));
+ if(match.length!==1)return;
+ const x=await dsApi({action:'match',id:match[0].id});if(!x?.event)return;const e=x.event;
+ if(e.referee){j.gameInfo=j.gameInfo||{};j.gameInfo.officials=[...(j.gameInfo.officials||[]),{displayName:e.referee,position:{name:'Referee'}}]}
+ if(e.coaches?.length)j.coaches=e.coaches;
+}
+
 async function loadAS(k){const d=k.slice(0,4)+'-'+k.slice(4,6)+'-'+k.slice(6,8);
  try{const r=await fetch('/api/bball?date='+d);if(r.status===503){D.asOff='nokey';return []}const j=await r.json();if(!r.ok||!Array.isArray(j.events)){D.asOff='err';return []}D.asOff=j.coverage?.otherEuropean||'';
   return j.events.filter(e=>LGN[e.lg]).map(e=>Object.assign(e,{id:String(e.id),date:new Date(e.date),det:[],h:Object.assign({color:null,form:'',rec:''},e.h),a:Object.assign({color:null,form:'',rec:''},e.a)}))}catch(x){D.asOff='err';return []}}
@@ -119,6 +149,7 @@ function notifyGoals(ev){
    if(S.notif&&noticeEnabled('goal')&&!window.TribunPush?.active()&&'Notification' in window&&Notification.permission==='granted'){try{navigator.serviceWorker?.ready.then(r=>r.showNotification('Tribün',{body:t,icon:'/api/icon?s=192&v=2'})).catch(()=>{})}catch(x){}}}
   D.prev[k]=now}}
 async function loadSum(lg,id){
+ if(isDS(lg)){const x=await dsApi({action:'match',id});const e=x?.event||D.ev.find(v=>v.id===id);D.sum[id]=e?dsSummary(e):{failed:1};if(V.match?.id===id)render();return}
  if(isAS(lg)){
   if(['as-el','as-ec'].includes(lg)&&/^el[eu]20\d{2}\d{1,4}$/.test(id)){
    try{const r=await fetch('/api/bball?league='+encodeURIComponent(lg)+'&match='+encodeURIComponent(id));const j=await r.json();if(r.ok&&j.header)D.sum[id]=j;else if(!D.sum[id])D.sum[id]={as:1,el:1,failed:1}}catch{if(!D.sum[id])D.sum[id]={as:1,el:1,failed:1}}
@@ -126,9 +157,10 @@ async function loadSum(lg,id){
   if(V.match&&V.match.id===id)window.TribunPush?.sync(S,true);
 render();return}
  const j=await api(`site/v2/sports/${sp(lg)}/${lg}/summary?event=${id}`);
- if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render()}
+ if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render();if(lg==='tur.1'){await enrichSuper(j).catch(()=>{});if(V.match?.id===id)render()}}
  else if(!D.sum[id]){D.sum[id]={failed:1};if(V.match&&V.match.id===id)render()}}
 async function loadStand(lg){
+ if(isDS(lg)){const j=await dsApi({action:'stand',league:lg});D.stand[lg]=j?.groups?.length?j.groups:'no_data';if(V.tab==='std'||V.team)render();return}
  if(isAS(lg)){try{const r=await fetch('/api/bball?standings='+lg);const j=await r.json();const g=r.ok&&Array.isArray(j.groups)?j.groups.filter(x=>x.rows&&x.rows.length).map(x=>({name:x.name,as:1,source:x.source,season:x.season,week:x.week,rows:x.rows.map(y=>Object.assign({gb:(y.gd>0?'+':'')+y.gd},y,{pct:typeof y.pct==='string'&&y.pct.includes('.')?y.pct:(y.pct?String(y.pct):'')}))})):[];D.stand[lg]=g.length?g:(j.error==='plan_limit'?'plan_limit':r.status===503?'nokey':j.reason==='not_covered'||j.reason==='no_data'?'no_data':'off')}catch(x){D.stand[lg]='off'}if(V.tab==='std'||V.team)render();return}
  const j=await api(`v2/sports/${sp(lg)}/${lg}/standings`);const grp=[];
  const walk=g=>{if(g.standings&&(g.standings.entries||[]).length){const es=g.standings.entries.map(en=>{const st={};for(const x of en.stats||[])st[x.name]=x;const v=n=>st[n]?+st[n].value:0;const t=en.team||{};
@@ -213,12 +245,12 @@ function listing(list){
  if(V.q){const q=V.q.toLocaleLowerCase('tr');list=list.filter(e=>(e.h.nm+' '+e.a.nm+' '+LGN[e.lg].name).toLocaleLowerCase('tr').includes(q))}
  if(!list.length)return '';
  if(S.sort==='saat')return `<div class="lgb">${list.slice().sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`;
- const trm=list.filter(e=>!['tur.1','as-tr'].includes(e.lg)&&(isTR(e.h)||isTR(e.a)));const rest=list.filter(e=>!trm.includes(e));
+ const trm=list.filter(e=>!isDS(e.lg)&&!['tur.1','as-tr'].includes(e.lg)&&(isTR(e.h)||isTR(e.a)));const rest=list.filter(e=>!trm.includes(e));
  return (trm.length?`<div class="lgb trb"><div class="lgh"><i class="trdot"></i>Türk takımları<span class="mut" style="margin-left:auto;font-weight:600">${trm.length} maç</span></div>${trm.sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`:'')+grouped(rest)}
 
 // These leagues are external federation links, not yet integrated live data.
 const TR_FED=[['Trendyol 1. Lig','142'],['Nesine 2. Lig','976'],['Nesine 3. Lig','971']];
-function trFederationLinks(){return '<div class="card" style="margin:12px 0"><div class="lgh">Türkiye alt ligleri · TFF</div><p class="mut" style="padding:8px 12px">Bursaspor 2026-2027 sezonunda Trendyol 1. Lig’de. Alt liglerin canlı verisi mevcut API planında yok. Resmi fikstür ve puan cetvelini aç:</p>'+TR_FED.map(([n,id])=>'<a class="row" style="color:inherit;text-decoration:none" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/Default.aspx?pageID='+id+'">'+esc(n)+'<span>↗</span></a>').join('')+'</div>'}
+function trFederationLinks(){return '<div class="card" style="margin:12px 0"><div class="lgh">Türkiye alt ligleri · TFF</div><p class="mut" style="padding:8px 12px">Alt lig verisi şu anda alınamadığında resmi kaynağı kullanabilirsin. Resmi fikstür ve puan cetvelini aç:</p>'+TR_FED.map(([n,id])=>'<a class="row" style="color:inherit;text-decoration:none" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/Default.aspx?pageID='+id+'">'+esc(n)+'<span>↗</span></a>').join('')+'</div>'}
 function matchOfficials(j){
  const sets=[j.gameInfo?.officials,j.boxscore?.gameInfo?.officials,j.header?.competitions?.[0]?.officials];
  const found=new Map();
@@ -243,7 +275,7 @@ function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:
 function filtered(){const all=D.ev;return V.filt==='live'?all.filter(e=>e.state==='in'):V.filt==='fav'?all.filter(isFav):V.filt==='done'?all.filter(e=>e.state==='post'):all}
 function listBody(){const L=listing(filtered());
  const empty=D.state==='ok'?`<div class="card empty"><p class="mut">${V.q?'Aramana uyan maç yok.':V.filt==='live'?'Şu an oynanan maç yok.':V.filt==='fav'?'Takip ettiğin maç yok. Maçların yanındaki yıldıza dokun.':'Bu tarihte seçili liglerde maç yok.'}</p></div>`:'';
- return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${L||empty}${S.sport==='soccer'?trFederationLinks():''}`}
+ return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${S.sport==='soccer'?`<p class="mut" style="margin:8px 4px">Türkiye alt ligleri: en fazla 20 dakikada bir veri sorgulanır; ücretsiz kota dolarsa eski veri kalabilir. ${D.dsOff?'Alt lig verisi şu anda alınamadı.':''}</p>`:''}${L||empty}${S.sport==='soccer'&&D.dsOff?trFederationLinks():''}`}
 function setQ(v){V.q=v;const l=$('#lst');if(l)l.innerHTML=listBody()}
 function setSort(k){S.sort=k;save();render()}
 function home(){if(D.state==='idle')setTimeout(loadDay);
@@ -254,7 +286,7 @@ function home(){if(D.state==='idle')setTimeout(loadDay);
  <div id="lst">${listBody()}</div>`}
 function openM(lg,id){go({match:{lg,id}})}
 function openT(lg,id){if(isAS(lg))return;go({team:{lg,id}})}
-async function loadTeam(lg,id){const k=lg+id;D.tm[k]={loading:1};const base=`site/v2/sports/${sp(lg)}/${lg}/teams/${id}/`;
+async function loadTeam(lg,id){const k=lg+id;D.tm[k]={loading:1};if(isDS(lg)){const j=await dsApi({action:'team',league:lg,id});const t=j?.team;D.tm[k]=t?{ev:j.events.map(e=>({...dsEvent(e),lgSlug:e.lg,lgName:LGN[e.lg]?.name||''})).sort((a,b)=>a.date-b.date),ros:[],info:{nm:t.nm,logo:t.logo},slg:lg}:{failed:1};if(t)D.tn[id]=t.nm;if(D.stand[lg]==null&&lg!=='ds-cup'){D.stand[lg]='loading';loadStand(lg)}if(V.team?.id===id)render();return}const base=`site/v2/sports/${sp(lg)}/${lg}/teams/${id}/`;
  const dom=!isB(lg)&&lg!=='tur.1'&&D.tr.has(String(id))?'tur.1':null;const db=`site/v2/sports/soccer/tur.1/teams/${id}/`;
  const [a,b,r,c2,d2]=await Promise.all([api(base+'schedule'),isB(lg)?null:api(base+'schedule?fixture=true'),api(base+'roster'),dom?api(db+'schedule'):null,dom?api(db+'schedule?fixture=true'):null]);
  const mp=e=>{const c=(e.competitions||[])[0]||{};const cs=c.competitors||[];const s=k=>{const t=cs.find(x=>x.homeAway===k)||{};const tt=t.team||{};return{id:String(tt.id||''),nm:tt.shortDisplayName||tt.displayName||'',logo:((tt.logos||[])[0]||{}).href||tt.logo||'',sc:t.score&&typeof t.score==='object'?(t.score.displayValue??''):(t.score??'')}};
@@ -285,7 +317,7 @@ function teamV(){const {lg,id}=V.team;const d=D.tm[lg+id]||{loading:1};const B=i
   body=keys.length?keys.map(k=>`<h2 style="text-align:left;margin-top:6px">${esc(PG[k]||k)}</h2><div class="card">${grp[k].map(p=>`<div class="pl"><b>${esc(p.jersey||'')}</b><span>${esc(p.displayName||p.fullName||'')}</span><em>${p.age?esc(p.age)+' yaş':''}${p.citizenship?' · '+esc(p.citizenship):''}</em></div>`).join('')}</div>`).join(''):`<div class="card empty"><p class="mut">Kadro bilgisi yok.</p></div>`}
  else{const st=D.stand[d.slg||lg];if(!st||st==='loading')body=`<div class="card empty"><p class="mut">Puan durumu yükleniyor…</p></div>`;else if(!Array.isArray(st))body=`<div class="card empty"><p class="mut">Puan durumu yok.</p></div>`;
   else{const g=st.find(x=>x.rows.some(r=>r.id===id))||st[0];body=`<div class="card" style="padding:4px 10px"><table><tr><th>#</th><th>${esc(g.name)}</th>${B?'<th>G</th><th>M</th><th>%</th>':'<th>O</th><th>AV</th><th>P</th>'}</tr>${g.rows.map((r,i)=>`<tr class="${r.id===id?'me':''}"><td>${B&&g.source!=='TBF'?i+1:(r.rank||i+1)}</td><td><span class="tn">${crest(r.logo,'')}${esc(r.nm)}</span></td>${B?`<td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td>`:`<td>${r.p}</td><td>${r.gd>0?'+':''}${r.gd}</td><td>${r.pts}</td>`}</tr>`).join('')}</table></div>`}}
- return `${top}${hero}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.ttab===k}" class="${V.ttab===k?'on':''}" onclick="go({ttab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
+ return `${top}${hero}${isDS(lg)?'<p class="mut" style="margin:8px 4px">DataSportsAPI · Ücretsiz veri; alt liglerde arka plan bildirimi henüz yok.</p>':''}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.ttab===k}" class="${V.ttab===k?'on':''}" onclick="go({ttab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
 function togM(id){const i=S.fm.indexOf(id);if(i<0){S.fm.push(id);toast('Maç takipte.')}else S.fm.splice(i,1);S.fm=S.fm.slice(-200);save();render()}
 function togT(id,lg){const nm=D.tn[id]||(S.ftn||{})[id]||'Takım';const i=S.ft.indexOf(id);if(i<0){S.ft.push(id);S.ftn=Object.assign(S.ftn||{},{[id]:nm});if(lg)S.ftl[id]=lg;toast(nm+' takip ediliyor')}else {S.ft.splice(i,1);if(S.teamNoticePrefs)delete S.teamNoticePrefs[id]}save();render()}
 const ROLE={'Referee':'Orta hakem','Assistant Referee':'Yardımcı hakem','Linesman':'Yardımcı hakem','Fourth Official':'4. hakem','4th Official':'4. hakem','Video Assistant Referee':'VAR','VAR':'VAR','Assistant VAR':'AVAR','Assistant Video Assistant Referee':'AVAR','Umpire':'Hakem','Crew Chief':'Başhakem'};
@@ -335,8 +367,8 @@ function detail(){const {lg,id}=V.match;const j=D.sum[id];const e=D.ev.find(x=>x
  const hero=`<div class="hero" style="background:linear-gradient(150deg,${H.color||LGN[lg].color},${A.color||'#111'})"><div class="mut" style="color:rgba(255,255,255,.85);font-weight:800;letter-spacing:.5px;text-transform:uppercase">${esc(LGN[lg].name)}${when?' · '+when.toLocaleDateString('tr-TR',{day:'numeric',month:'long'}):''}</div>
  <div class="g3"><div>${tlink(H,crest(H.logo,H.ab)+`<div class="tn">${esc(H.nm)}</div>`)}${extra(H)}</div><div><div class="s">${state==='pre'&&when?hm(when):esc(H.sc)+'-'+esc(A.sc)}</div><div style="font-size:12px;font-weight:700;margin-top:4px">${state==='pre'?'Başlamadı':subTxt}</div></div><div>${tlink(A,crest(A.logo,A.ab)+`<div class="tn">${esc(A.nm)}</div>`)}${extra(A)}</div></div>
  <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">${[H,A].map(t=>t.id?`<button class="pill" style="width:auto;margin:0;padding:9px 14px;background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.35);color:#fff;font-size:10px" onclick="togT('${esc(t.id)}','${lg}')">${S.ft.includes(t.id)?'✓ ':'+ '}${esc(t.nm)}</button>`:'').join('')}</div></div>`;
- const tabs=isAS(lg)?(['as-el','as-ec'].includes(lg)&&/^el[eu]20\d{2}\d{1,4}$/.test(id)?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['bil','Bilgi']]:[['ozet','Özet']]):B?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['h2h','Karşılaştırma'],['bil','Bilgi']]:[['ozet','Özet'],['ist','İstatistik'],['kad','Kadro'],['anl','Anlatım'],['h2h','Karşılaştırma'],['bil','Bilgi']];
- if(!tabs.some(t=>t[0]===V.dtab))V.dtab='ozet';
+ const tabs=isDS(lg)?[['bil','Bilgi']]:isAS(lg)?(['as-el','as-ec'].includes(lg)&&/^el[eu]20\d{2}\d{1,4}$/.test(id)?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['bil','Bilgi']]:[['ozet','Özet']]):B?[['ozet','Özet'],['oyn','Oyuncular'],['ist','İstatistik'],['h2h','Karşılaştırma'],['bil','Bilgi']]:[['ozet','Özet'],['ist','İstatistik'],['kad','Kadro'],['anl','Anlatım'],['h2h','Karşılaştırma'],['bil','Bilgi']];
+ if(!tabs.some(t=>t[0]===V.dtab))V.dtab=tabs[0][0];
  let body='';
  if(!j)body=`<div class="card empty"><p class="mut">Ayrıntılar yükleniyor…</p></div>`;
  else if(V.dtab==='ozet'&&B){const n=Math.max(H.ls.length,A.ls.length);
@@ -373,7 +405,7 @@ function detail(){const {lg,id}=V.match;const j=D.sum[id];const e=D.ev.find(x=>x
  else{const gi=(j.boxscore||{}).gameInfo||j.gameInfo||{};const vn=gi.venue||{};
   body=`<div class="card info">${(j.coaches||[]).map(c=>`<span>${esc(c.team)} · Antrenör</span><b>${esc(c.name)}</b>`).join('')}<span>${B?'Salon':'Stadyum'}</span><b>${esc(vn.fullName||(e&&e.venue)||'-')}</b><span>Şehir</span><b>${esc(((vn.address||{}).city)||'-')}</b><span>Seyirci</span><b>${gi.attendance?Number(gi.attendance).toLocaleString('tr-TR'):'-'}</b>${officialRows(j,lg)}<span>Başlama</span><b>${when?when.toLocaleString('tr-TR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'-'}</b></div>`}
  return `${top}${hero}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.dtab===k}" class="${V.dtab===k?'on':''}" onclick="go({dtab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
-function hasLeaders(lg){return !isB(lg)||lg==='nba'}
+function hasLeaders(lg){return !isDS(lg)&&(!isB(lg)||lg==='nba')}
 async function loadLeaders(lg){
  D.lead[lg]='loading';
  try{const r=await fetch('/api/leaders?league='+encodeURIComponent(lg));const j=await r.json();D.lead[lg]=r.ok&&Array.isArray(j.categories)?j:'off'}catch{D.lead[lg]='off'}
@@ -395,7 +427,7 @@ function standNav(lg){
  return '<div class="seg"><button class="'+(V.stab==='stand'?'on':'')+'" onclick="go({stab:\'stand\'})">Puan durumu</button><button class="'+(V.stab==='lead'?'on':'')+'" onclick="go({stab:\'lead\',lcat:0})">'+(isB(lg)?'Sayı krallığı':'Gol krallığı')+'</button></div>';
 }
 
-function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(V.stab==='lead'&&hasLeaders(lg))return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${leaderBody(lg)}`;if(D.stand[lg]==null){D.stand[lg]='loading';setTimeout(()=>loadStand(lg))}
+function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(lg==='ds-cup')return topBar('Puan durumu')+sportBar()+'<div class="chips">'+actL().map(([k,n])=>'<button class="'+(lg===k?'on':'')+'" onclick="setSL(\''+k+'\')">'+esc(n)+'</button>').join('')+'</div><div class="card empty">Türkiye Kupası eleme organizasyonudur; lig puan tablosu yok.</div>';if(V.stab==='lead'&&hasLeaders(lg))return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${leaderBody(lg)}`;if(D.stand[lg]==null){D.stand[lg]='loading';setTimeout(()=>loadStand(lg))}
  const st=D.stand[lg];let body;
  if(st==='loading')body=`<div class="card empty"><p class="mut">Puan durumu yükleniyor…</p></div>`;
  else if(st==='off')body=`<div class="card empty"><p class="mut">Bu lig için puan durumuna ulaşılamadı.</p></div>`;
@@ -406,11 +438,11 @@ function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(V.stab=
   const head=B?(g.source==='TBF'?`<th>O</th><th>G</th><th>M</th><th>AV</th><th>P</th>`:`<th>G</th><th>M</th><th>%</th><th>${g.as?'AV':'FARK'}</th>`):'<th>O</th><th>G</th><th>B</th><th>M</th><th>AV</th><th>P</th>';
   const cells=r=>B?(g.source==='TBF'?`<td>${r.p}</td><td>${r.w}</td><td>${r.l}</td><td>${r.gd>0?'+':''}${r.gd}</td><td><b>${r.pts}</b></td>`:`<td>${r.w}</td><td>${r.l}</td><td>${esc(r.pct)}</td><td>${esc(r.gb||'-')}</td>`):`<td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.gd>0?'+':''}${r.gd}</td><td>${r.pts}</td>`;
   const hasN=g.rows.some(r=>r.note);const legend=[...new Map(g.rows.filter(r=>r.note).map(r=>[r.note.d,r.note.c])).entries()];
-  body=`${g.source==='TBF'?`<p class="mut" style="margin:8px 4px">Kaynak: TBF · ${esc(g.season||'')}${g.week?' · '+esc(g.week)+'. hafta':''}</p>`:''}${st.length>1?`<div class="chips">${st.map((x,i)=>`<button class="${i===gi?'on':''}" onclick="go({grp:${i}})">${esc(x.name.replace(/^Grup /,''))}</button>`).join('')}</div>`:''}
+  body=`${g.source==='DataSportsAPI'?`<p class="mut" style="margin:8px 4px">Kaynak: DataSportsAPI · ${esc(g.season||'')}</p>`:''}${g.source==='TBF'?`<p class="mut" style="margin:8px 4px">Kaynak: TBF · ${esc(g.season||'')}${g.week?' · '+esc(g.week)+'. hafta':''}</p>`:''}${st.length>1?`<div class="chips">${st.map((x,i)=>`<button class="${i===gi?'on':''}" onclick="go({grp:${i}})">${esc(x.name.replace(/^Grup /,''))}</button>`).join('')}</div>`:''}
   <div class="card" style="padding:4px 10px"><table><tr><th>#</th><th>${esc(g.name)}</th>${head}</tr>${g.rows.map((r,i)=>{const cl=hasN?(r.note&&/^#[0-9a-f]{6}$/i.test(r.note.c)?r.note.c:'transparent'):(i<(B?6:st.length>1?2:4)?'var(--ok)':'transparent');const ar=r.chg>0?'<i class="up">▲</i>':r.chg<0?'<i class="dn">▼</i>':'';const cl2=r.id&&!isAS(lg)?` onclick="openT('${lg}','${esc(r.id)}')" class="trc"`:'';
    return `<tr${cl2}><td style="box-shadow:inset 3px 0 ${cl}">${B?i+1:(r.rank||i+1)}${ar}</td><td><span class="tn">${crest(r.logo,'')}${esc(r.nm)}</span></td>${cells(r)}</tr>`}).join('')}</table></div>
   ${legend.length?`<div class="legend">${legend.map(([d,c])=>`<span><i style="background:${/^#[0-9a-f]{6}$/i.test(c)?c:'#ccc'}"></i>${esc(ZONE(d))}</span>`).join('')}</div>`:''}`}
- return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${body}${!B?trFederationLinks():''}`}
+ return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${body}${isDS(lg)&&st==='no_data'?trFederationLinks():''}`}
 const ZT={'champions league':'Şampiyonlar Ligi','champions league qualifying':'Şampiyonlar Ligi elemeleri','europa league':'Avrupa Ligi','europa league qualifying':'Avrupa Ligi elemeleri','conference league qualifying':'Konferans Ligi elemeleri','europa conference league qualifying':'Konferans Ligi elemeleri','conference league':'Konferans Ligi','relegated':'Küme düşme','relegation':'Küme düşme','relegation playoff':'Küme düşme play-off','relegation play-off':'Küme düşme play-off','promotion':'Üst lige çıkış','promoted':'Üst lige çıkış','promotion playoff':'Play-off (çıkış)','playoffs':'Play-off','play-in':'Play-in','round of 16':'Son 16','knockout round playoffs':'Play-off turu','next round':'Üst tur','copa libertadores':'Libertadores','copa sudamericana':'Sudamericana','eliminated':'Elendi'};
 const ZONE=d=>ZT[String(d||'').toLowerCase()]||d;
 function setSL(k){if(isB(k))S.slgB=k;else S.slg=k;V.grp=0;V.lcat=0;if(!hasLeaders(k))V.stab='stand';save();render()}
@@ -445,7 +477,7 @@ async function toggleNotice(k){
 
 let teamSetting='',historyRows=null,historyError=false,historyLoading=false;
 function teamSettingUI(){
- const teams=S.ft.filter(id=>/^\d+$/.test(id)&&!isB(S.ftl[id]));
+ const teams=S.ft.filter(id=>/^\d+$/.test(id)&&!isB(S.ftl[id])&&!isDS(S.ftl[id]));
  if(!teams.length)return '<p class="mut" style="margin:8px 4px">Takım bazlı ayar için önce bir futbol takımını takip et.</p>';
  if(!teams.includes(teamSetting))teamSetting=teams[0];
  const id=teamSetting,custom=S.teamNoticePrefs?.[id];
@@ -479,7 +511,7 @@ function settings(){return `<button class="back" onclick="go({tab:'usr'})">${svg
  <div class="card"><button class="sw ${S.notif&&window.TribunPush?.active()?'on':''}" role="switch" aria-checked="${!!(S.notif&&window.TribunPush?.active())}" onclick="${S.notif&&window.TribunPush?.active()?'stopNotif()':'askNotif()'}">Maç bildirimleri (takip edilen futbol maçları)<i></i></button></div>
  <h2 style="text-align:left;margin:16px 0 6px">Bildirim türleri</h2>
  <div class="card">${NOTICE_OPTIONS.map(([k,n])=>`<button class="sw ${noticeEnabled(k)?'on':''}" role="switch" aria-checked="${noticeEnabled(k)}" ${prefBusy?'disabled':''} onclick="toggleNotice('${k}')">${n}<i></i></button>`).join('')}</div>
- <p class="mut" style="margin:8px 4px">Seçtiğin olaylar, maç bildirimleri açıkken takip ettiğin futbol maçları için gönderilir. VAR yalnızca veri kaynağı açıkça bildirdiğinde; skor düşüşü ise düzeltme olarak gösterilir.</p>
+ <p class="mut" style="margin:8px 4px">Seçtiğin olaylar, maç bildirimleri açıkken ESPN kapsamındaki takip ettiğin futbol maçları için gönderilir. Yeni Türkiye alt liglerinde arka plan bildirimleri henüz desteklenmiyor. VAR yalnızca veri kaynağı açıkça bildirdiğinde; skor düşüşü ise düzeltme olarak gösterilir.</p>
  ${teamSettingUI()}
  <button class="pill" onclick="openHistory()">Bildirim geçmişi</button>
  ${S.notif&&window.TribunPush?.active()?`<button class="pill" onclick="testNotif()">Test bildirimi gönder (8 sn)</button>`:''}
