@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler from '../api/community.js';
+import handler,{groupNoticeTick} from '../api/community.js';
+import {createHash} from 'node:crypto';
 test('community flow validates group ownership, vote, scoring and deletion',async t=>{
  const oldFetch=global.fetch,oldUrl=process.env.KV_REST_API_URL;process.env.KV_REST_API_URL='https://mock-redis.invalid';const values=new Map(),sets=new Map(),hashes=new Map(),sorted=new Map();
  const map=(m,k)=>{if(!m.has(k))m.set(k,new Map());return m.get(k)};
@@ -19,6 +20,8 @@ test('community flow validates group ownership, vote, scoring and deletion',asyn
   else if(cmd==='SISMEMBER')result=Number(set(k).has(args[0]));
   else if(cmd==='SMEMBERS')result=[...set(k)];
   else if(cmd==='ZADD'){const a=args.includes('NX')?args.slice(1):args;if(!args.includes('NX')||!map(sorted,k).has(a[1]))map(sorted,k).set(a[1],Number(a[0]));result=1}
+  else if(cmd==='ZRANGEBYSCORE')result=[...map(sorted,k)].filter(([,v])=>v>=Number(args[0])&&v<=Number(args[1])).sort((a,b)=>a[1]-b[1]).slice(Number(args[3]),Number(args[3])+Number(args[4])).map(([v])=>v);
+  else if(cmd==='ZREM')result=Number(map(sorted,k).delete(args[0]));
   else if(cmd==='HGET')result=map(hashes,k).get(args[0])??null;
   else if(cmd==='HSET'){map(hashes,k).set(args[0],args[1]);result=1}
   else if(cmd==='HDEL'){result=Number(map(hashes,k).delete(args[0]))}
@@ -41,8 +44,16 @@ test('community flow validates group ownership, vote, scoring and deletion',asyn
  assert.equal((await call(B,'poll',{...match,choice:'home'})).body.counts.home,1);
  assert.equal((await call(B,'poll',{...match,choice:'away'})).body.counts.home,0);
  const second={lg:'eng.1',id:'124'};assert.equal((await call(A,'add',{code,...second})).status,200);assert.equal((await call(B,'predict',{code,...second,h:2,a:1})).status,200);assert.equal((await call(A,'board',{code})).body.matches.length,2);
+ const member=t=>createHash('sha256').update(t).digest('hex'),targets=[['A',{communityMember:member(A),groupNotices:true}],['B',{communityMember:member(B),groupNotices:true}],['C',{communityMember:member(C),groupNotices:true}],['off',{communityMember:member(B),groupNotices:false}]],delivered=[];
+ const send=async (sub,payload)=>delivered.push({sub,payload});
+ await groupNoticeTick(targets,send,Date.now()+1000);
+ const added=delivered.filter(x=>x.payload.url==='/#davet-'+code);
+ assert.equal(added.length,4);assert.ok(added.every(x=>x.payload.title.includes('Yeni maç eklendi')&&[member(A),member(B)].includes(x.sub.communityMember)));
+ const before=delivered.length;await groupNoticeTick(targets,send,Date.now()+1000);assert.equal(delivered.length,before);
  final=true;assert.equal((await call(B,'predict',{code,...match,h:3,a:1})).status,409);assert.equal((await call(B,'predict',{code,...second,h:3,a:1})).status,409);
  const board=await call(A,'board',{code});assert.equal(board.body.board.find(x=>x.name==='B').points,6);
+ await groupNoticeTick(targets,send,Date.now()+4*3600000);
+ const results=delivered.filter(x=>x.payload.url==='/#davet-'+code&&x.payload.title.includes('Tahmin sonucu'));assert.equal(results.length,4);assert.equal(results.filter(x=>x.sub.communityMember===member(B)&&x.payload.body.includes('3 puan')).length,2);
  assert.equal((await call(B,'delete')).status,200);
  assert.equal((await call(B,'board',{code})).status,403);
  assert.equal((await call(A,'poll',match)).body.counts.away,0);
