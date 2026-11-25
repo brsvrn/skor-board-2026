@@ -29,6 +29,11 @@ async function fixture(lg,id,strict=false){
 }
 const joinLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=40 then return 0 end; redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
 const addLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=8 then return 0 end;redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
+// Index writes before recording user data, so deletion is retryable even after a partial network failure.
+async function indexMember(key,value,limit){
+ if(!await kv('SISMEMBER',key,value)&&Number(await kv('SCARD',key))>=limit)throw Error('full');
+ await kv('SADD',key,value);await kv('EXPIRE',key,days);
+}
 const voteLua="if redis.call('HEXISTS',KEYS[1],ARGV[1])==0 and redis.call('HLEN',KEYS[1])>=1000 then return 0 end;redis.call('HSET',KEYS[1],ARGV[1],ARGV[2]);redis.call('EXPIRE',KEYS[1],ARGV[3]);return 1";
 export default async function handler(req,res){
  res.setHeader('Cache-Control','no-store');
@@ -38,22 +43,32 @@ export default async function handler(req,res){
  if(!b||JSON.stringify(b).length>4000||!token(b.token))return res.status(400).json({error:'request'});
  const member=hash(b.token),ip=hash(String(req.headers['x-vercel-forwarded-for']||req.headers['x-forwarded-for']||'unknown').split(',')[0]);
  try{
+ const memberKey=P+'member:'+member;
  const rate=P+'rate:'+ip+':'+Math.floor(Date.now()/60000);await kv('SET',rate,'0','NX','EX',90);if(Number(await kv('INCR',rate))>30)return res.status(429).json({error:'rate'});
+ if(b.action==='delete'){
+  const groups=await kv('SMEMBERS',memberKey+':groups')||[],polls=await kv('SMEMBERS',memberKey+':polls')||[];
+  for(const mk of polls){if(typeof mk!=='string'||!mk.includes(':'))continue;const [lg,id]=mk.split(':');if(validMatch(lg,id))await kv('HDEL',P+'poll:'+mk,member);}
+  for(const gcode of groups){if(!code(gcode))continue;const key=P+'group:'+gcode,g=await get(key);await kv('HDEL',key+':members',member);
+   const matches=pairs(await kv('HGETALL',key+':matches'));for(const mk of Object.keys(matches).slice(0,8))await kv('HDEL',key+':pred:'+mk,member);
+   if(g?.owner===member){const members=pairs(await kv('HGETALL',key+':members')),next=Object.keys(members)[0];if(next)await kv('SET',key,JSON.stringify({...g,owner:next}),'KEEPTTL');else await kv('DEL',key);}
+  }
+  await kv('DEL',memberKey+':groups',memberKey+':polls');return res.json({ok:true});
+ }
  if(b.action==='poll'){
   if(!validMatch(b.lg,b.id))return res.status(400).json({error:'match'});
   const key=P+'poll:'+b.lg+':'+b.id;
-  if(b.choice!==undefined){if(!['home','draw','away'].includes(b.choice))return res.status(400).json({error:'choice'});const e=await fixture(b.lg,b.id,true);if(!e.pre||Date.now()>=e.kickoff)return res.status(409).json({error:'closed'});if(!await kv('EVAL',voteLua,1,key,member,b.choice,days))return res.status(409).json({error:'full'});}
+  if(b.choice!==undefined){if(!['home','draw','away'].includes(b.choice))return res.status(400).json({error:'choice'});const e=await fixture(b.lg,b.id,true);if(!e.pre||Date.now()>=e.kickoff)return res.status(409).json({error:'closed'});await indexMember(memberKey+':polls',b.lg+':'+b.id,120);if(!await kv('EVAL',voteLua,1,key,member,b.choice,days))return res.status(409).json({error:'full'});}
   const rows=pairs(await kv('HGETALL',key)),counts={home:0,draw:0,away:0};for(const v of Object.values(rows))if(Object.hasOwn(counts,v))counts[v]++;
   return res.json({counts,choice:rows[member]||null});
  }
  if(b.action==='create'){
   const name=str(b.name),groupName=str(b.groupName);if(!name||!groupName)return res.status(400).json({error:'name'});
   const id=randomBytes(12).toString('hex'),key=P+'group:'+id,group={name:groupName,owner:member,created:Date.now(),ends:Date.now()+7*86400000};
-  await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);return res.json({code:id,name:groupName,ends:group.ends});
+  await indexMember(memberKey+':groups',id,20);await kv('SET',key,JSON.stringify(group),'EX',days);await kv('EVAL',joinLua,1,key+':members',member,name,days);return res.json({code:id,name:groupName,ends:group.ends});
  }
  if(!code(b.code))return res.status(400).json({error:'code'});
  const key=P+'group:'+b.code,g=await get(key);if(!g)return res.status(404).json({error:'not_found'});
- if(b.action==='join'){const name=str(b.name);if(!name||Date.now()>=g.ends)return res.status(400).json({error:'closed'});if(!await kv('EVAL',joinLua,1,key+':members',member,name,days))return res.status(409).json({error:'full'});return res.json({code:b.code,name:g.name,ends:g.ends})}
+ if(b.action==='join'){const name=str(b.name);if(!name||Date.now()>=g.ends)return res.status(400).json({error:'closed'});await indexMember(memberKey+':groups',b.code,20);if(!await kv('EVAL',joinLua,1,key+':members',member,name,days))return res.status(409).json({error:'full'});return res.json({code:b.code,name:g.name,ends:g.ends})}
  const members=pairs(await kv('HGETALL',key+':members'));if(!Object.hasOwn(members,member))return res.status(403).json({error:'membership'});
  if(b.action==='add'||b.action==='predict'){
   if(Date.now()>=g.ends||!validMatch(b.lg,b.id))return res.status(400).json({error:'closed'});
@@ -61,7 +76,7 @@ export default async function handler(req,res){
   if(!e.pre||Date.now()>=e.kickoff||e.kickoff>g.ends)return res.status(409).json({error:'closed'});
   if(b.action==='add'){if(g.owner!==member)return res.status(403).json({error:'owner'});if(!await kv('EVAL',addLua,1,key+':matches',mk,JSON.stringify({lg:e.lg,id:e.id,home:e.home,away:e.away,kickoff:e.kickoff}),days))return res.status(409).json({error:'full'});return res.json({ok:true})}
   if(!scoreOK(b.h)||!scoreOK(b.a)||!await kv('HEXISTS',key+':matches',mk))return res.status(400).json({error:'prediction'});
-  await kv('HSET',key+':pred:'+mk,member,JSON.stringify({h:b.h,a:b.a}));await kv('EXPIRE',key+':pred:'+mk,days);return res.json({ok:true});
+  await indexMember(memberKey+':groups',b.code,20);await kv('HSET',key+':pred:'+mk,member,JSON.stringify({h:b.h,a:b.a}));await kv('EXPIRE',key+':pred:'+mk,days);return res.json({ok:true});
  }
  if(b.action==='board'){
   const matches=Object.entries(pairs(await kv('HGETALL',key+':matches'))).map(([mk,x])=>({mk,...parse(x)})).slice(0,8);
@@ -70,5 +85,5 @@ export default async function handler(req,res){
   return res.json({name:g.name,ends:g.ends,owner:g.owner===member,matches:rows,board:board.sort((a,b)=>b.points-a.points||b.played-a.played).map(({id,...row})=>({...row,you:id===member}))});
  }
  return res.status(400).json({error:'action'});
- }catch(e){return res.status(503).json({error:['budget','restricted','no_data','busy','match'].includes(e.message)?e.message:'unavailable'})}
+ }catch(e){return res.status(e.message==='full'?409:503).json({error:['budget','restricted','no_data','busy','match','full'].includes(e.message)?e.message:'unavailable'})}
 }
