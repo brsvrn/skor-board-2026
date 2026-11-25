@@ -215,6 +215,26 @@ function listing(list){
  if(S.sort==='saat')return `<div class="lgb">${list.slice().sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`;
  const trm=list.filter(e=>!['tur.1','as-tr'].includes(e.lg)&&(isTR(e.h)||isTR(e.a)));const rest=list.filter(e=>!trm.includes(e));
  return (trm.length?`<div class="lgb trb"><div class="lgh"><i class="trdot"></i>Türk takımları<span class="mut" style="margin-left:auto;font-weight:600">${trm.length} maç</span></div>${trm.sort((a,b)=>a.date-b.date).map(e=>mrow(e,1)).join('')}</div>`:'')+grouped(rest)}
+
+// These leagues are external federation links, not yet integrated live data.
+const TR_FED=[['Trendyol 1. Lig','142'],['Nesine 2. Lig','976'],['Nesine 3. Lig','971']];
+function trFederationLinks(){return '<div class="card" style="margin:12px 0"><div class="lgh">Türkiye alt ligleri · TFF</div><p class="mut" style="padding:8px 12px">Bursaspor 2026-2027 sezonunda Trendyol 1. Lig’de. Alt liglerin canlı verisi mevcut API planında yok. Resmi fikstür ve puan cetvelini aç:</p>'+TR_FED.map(([n,id])=>'<a class="row" style="color:inherit;text-decoration:none" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/Default.aspx?pageID='+id+'">'+esc(n)+'<span>↗</span></a>').join('')+'</div>'}
+function matchOfficials(j){
+ const sets=[j.gameInfo?.officials,j.boxscore?.gameInfo?.officials,j.header?.competitions?.[0]?.officials];
+ const found=new Map();
+ for(const list of sets){if(!Array.isArray(list))continue;for(const o of list){
+  const name=String(o.displayName||o.fullName||o.name||o.official?.displayName||o.official?.fullName||'').trim();
+  if(!name)continue;
+  const role=String(o.position?.name||o.position?.displayName||o.role?.name||(typeof o.role==='string'?o.role:'')||'Hakem');
+  const k=name+'|'+role;if(!found.has(k))found.set(k,{name,role});
+ }}return [...found.values()];
+}
+function officialRows(j,lg){
+ const os=matchOfficials(j);
+ if(os.length)return os.map(o=>'<span>'+esc(ROLE[o.role]||o.role)+'</span><b>'+esc(o.name)+'</b>').join('');
+ return '<span>Hakem</span><b>Veri kaynağında bulunamadı'+(lg==='tur.1'?'<br><a style="font-size:12px;color:inherit;text-decoration:underline" target="_blank" rel="noopener noreferrer" href="https://www.tff.org/default.aspx?pageID=328">TFF hakem ve maç bilgileri ↗</a>':'')+'</b>';
+}
+
 function planCard(date){return `<div class="card stat"><i></i><span>${date?'Ücretsiz veri planı nedeniyle diğer Avrupa basketbol ligleri bu tarih için gösterilemiyor. NBA, EuroLeague ve EuroCup verileri varsa gösterilir.':'Bu ligin puan durumu mevcut ücretsiz veri planında sunulmuyor.'}</span></div>`}
 function nokeyCard(){return `<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri için API-Basketball erişimi henüz yapılandırılmadı. NBA, EuroLeague, EuroCup ve NCAA verileri varsa gösterilir.</span></div>`}
 function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:center;margin:-4px 0 12px">${actL().length} lig · son güncelleme ${hm(D.at)} · ${D.ev.some(e=>e.state==='in')?'30 sn':'2 dk'}da bir yenilenir</p>`;
@@ -223,7 +243,7 @@ function liveState(){if(D.state==='ok')return `<p class="mut" style="text-align:
 function filtered(){const all=D.ev;return V.filt==='live'?all.filter(e=>e.state==='in'):V.filt==='fav'?all.filter(isFav):V.filt==='done'?all.filter(e=>e.state==='post'):all}
 function listBody(){const L=listing(filtered());
  const empty=D.state==='ok'?`<div class="card empty"><p class="mut">${V.q?'Aramana uyan maç yok.':V.filt==='live'?'Şu an oynanan maç yok.':V.filt==='fav'?'Takip ettiğin maç yok. Maçların yanındaki yıldıza dokun.':'Bu tarihte seçili liglerde maç yok.'}</p></div>`:'';
- return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${L||empty}`}
+ return `${liveState()}${S.sport==='basketball'?(D.asOff==='nokey'?nokeyCard():D.asOff==='plan_limit'?planCard(true):['upstream','err'].includes(D.asOff)?'<div class="card stat"><i></i><span>Diğer Avrupa basketbol ligleri şu anda alınamadı. Daha sonra tekrar dene.</span></div>':''):''}${L||empty}${S.sport==='soccer'?trFederationLinks():''}`}
 function setQ(v){V.q=v;const l=$('#lst');if(l)l.innerHTML=listBody()}
 function setSort(k){S.sort=k;save();render()}
 function home(){if(D.state==='idle')setTimeout(loadDay);
@@ -351,7 +371,7 @@ function detail(){const {lg,id}=V.match;const j=D.sum[id];const e=D.ev.find(x=>x
    return `<div class="cm"><b style="width:44px;color:var(--mut);font-weight:600">${x.date?new Date(x.date).getFullYear():''}</b><span style="flex:1">${esc(nm(t1)||(c1.team||{}).abbreviation||'')} <strong>${esc(c1.score??'')}-${esc(c2.score??'')}</strong> ${esc(nm(t2)||(c2.team||{}).abbreviation||'')}<br><span class="mut">${esc(x.competitionName||x.shortName||'')}</span></span></div>`}).join('');
   body=rows?`<div class="card" style="display:grid;grid-template-columns:repeat(${B?2:3},1fr);text-align:center;padding:14px;margin-bottom:10px"><div><div class="an" style="font-size:28px">${wH}</div><span class="mut">${esc(H.nm)}</span></div>${B?'':`<div><div class="an" style="font-size:28px">${dr}</div><span class="mut">Beraberlik</span></div>`}<div><div class="an" style="font-size:28px">${wA}</div><span class="mut">${esc(A.nm)}</span></div></div><div class="card">${rows}</div>`:`<div class="card empty"><p class="mut">Geçmiş karşılaşma verisi yok.</p></div>`}
  else{const gi=(j.boxscore||{}).gameInfo||j.gameInfo||{};const vn=gi.venue||{};
-  body=`<div class="card info">${(j.coaches||[]).map(c=>`<span>${esc(c.team)} · Antrenör</span><b>${esc(c.name)}</b>`).join('')}<span>${B?'Salon':'Stadyum'}</span><b>${esc(vn.fullName||(e&&e.venue)||'-')}</b><span>Şehir</span><b>${esc(((vn.address||{}).city)||'-')}</b><span>Seyirci</span><b>${gi.attendance?Number(gi.attendance).toLocaleString('tr-TR'):'-'}</b>${(gi.officials||[]).length?(gi.officials||[]).map(o=>`<span>${esc(ROLE[((o.position||{}).name)||'']||((o.position||{}).name)||'Hakem')}</span><b>${esc(o.displayName||o.fullName||'')}</b>`).join(''):'<span>Hakem</span><b>-</b>'}<span>Başlama</span><b>${when?when.toLocaleString('tr-TR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'-'}</b></div>`}
+  body=`<div class="card info">${(j.coaches||[]).map(c=>`<span>${esc(c.team)} · Antrenör</span><b>${esc(c.name)}</b>`).join('')}<span>${B?'Salon':'Stadyum'}</span><b>${esc(vn.fullName||(e&&e.venue)||'-')}</b><span>Şehir</span><b>${esc(((vn.address||{}).city)||'-')}</b><span>Seyirci</span><b>${gi.attendance?Number(gi.attendance).toLocaleString('tr-TR'):'-'}</b>${officialRows(j,lg)}<span>Başlama</span><b>${when?when.toLocaleString('tr-TR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}):'-'}</b></div>`}
  return `${top}${hero}<div class="tabs" role="tablist">${tabs.map(([k,l])=>`<button role="tab" aria-selected="${V.dtab===k}" class="${V.dtab===k?'on':''}" onclick="go({dtab:'${k}'})">${l}</button>`).join('')}</div>${body}`}
 function hasLeaders(lg){return !isB(lg)||lg==='nba'}
 async function loadLeaders(lg){
@@ -390,7 +410,7 @@ function std(){const B=S.sport==='basketball';const lg=B?S.slgB:S.slg;if(V.stab=
   <div class="card" style="padding:4px 10px"><table><tr><th>#</th><th>${esc(g.name)}</th>${head}</tr>${g.rows.map((r,i)=>{const cl=hasN?(r.note&&/^#[0-9a-f]{6}$/i.test(r.note.c)?r.note.c:'transparent'):(i<(B?6:st.length>1?2:4)?'var(--ok)':'transparent');const ar=r.chg>0?'<i class="up">▲</i>':r.chg<0?'<i class="dn">▼</i>':'';const cl2=r.id&&!isAS(lg)?` onclick="openT('${lg}','${esc(r.id)}')" class="trc"`:'';
    return `<tr${cl2}><td style="box-shadow:inset 3px 0 ${cl}">${B?i+1:(r.rank||i+1)}${ar}</td><td><span class="tn">${crest(r.logo,'')}${esc(r.nm)}</span></td>${cells(r)}</tr>`}).join('')}</table></div>
   ${legend.length?`<div class="legend">${legend.map(([d,c])=>`<span><i style="background:${/^#[0-9a-f]{6}$/i.test(c)?c:'#ccc'}"></i>${esc(ZONE(d))}</span>`).join('')}</div>`:''}`}
- return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${body}`}
+ return `${topBar('Puan durumu')}${sportBar()}<div class="chips">${actL().map(([k,n])=>`<button class="${lg===k?'on':''}" onclick="setSL('${k}')">${n}</button>`).join('')}</div>${standNav(lg)}${body}${!B?trFederationLinks():''}`}
 const ZT={'champions league':'Şampiyonlar Ligi','champions league qualifying':'Şampiyonlar Ligi elemeleri','europa league':'Avrupa Ligi','europa league qualifying':'Avrupa Ligi elemeleri','conference league qualifying':'Konferans Ligi elemeleri','europa conference league qualifying':'Konferans Ligi elemeleri','conference league':'Konferans Ligi','relegated':'Küme düşme','relegation':'Küme düşme','relegation playoff':'Küme düşme play-off','relegation play-off':'Küme düşme play-off','promotion':'Üst lige çıkış','promoted':'Üst lige çıkış','promotion playoff':'Play-off (çıkış)','playoffs':'Play-off','play-in':'Play-in','round of 16':'Son 16','knockout round playoffs':'Play-off turu','next round':'Üst tur','copa libertadores':'Libertadores','copa sudamericana':'Sudamericana','eliminated':'Elendi'};
 const ZONE=d=>ZT[String(d||'').toLowerCase()]||d;
 function setSL(k){if(isB(k))S.slgB=k;else S.slg=k;V.grp=0;V.lcat=0;if(!hasLeaders(k))V.stab='stand';save();render()}
