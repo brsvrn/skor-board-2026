@@ -4,7 +4,7 @@ import {fixtures as dsFixtures,dsPushEvent,dsDelay} from '../lib/ds-data.js';
 const P='tribun:push:v1:'+(process.env.VERCEL_ENV==='production'?'prod:':'preview:'),SUB=P+'subs',STATE=P+'scores',STATUS=P+'scheduler';
 const cfg=()=>({url:process.env.KV_REST_API_URL||process.env.UPSTASH_REDIS_REST_URL,token:process.env.KV_REST_API_TOKEN||process.env.UPSTASH_REDIS_REST_TOKEN,pub:process.env.VAPID_PUBLIC_KEY,priv:process.env.VAPID_PRIVATE_KEY,subject:process.env.VAPID_SUBJECT,cron:process.env.CRON_SECRET});
 const ready=c=>Object.values(c).every(Boolean);
-async function markTick(c,now,state,dsState){const prior=parse(await redis(c,'GET',STATUS));await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state,dsState:dsState||prior?.dsState||'idle'}),'EX',86400);}
+async function markTick(c,now,state,dsState){const prior=parse(await redis(c,'GET',STATUS));await redis(c,'SET',STATUS,JSON.stringify({lastTick:new Date(now).toISOString(),state,dsState:dsState==='cached'?(prior?.dsState||'cached'):dsState||prior?.dsState||'idle'}),'EX',86400);}
 async function redis(c,...cmd){
  const r=await fetch(c.url,{method:'POST',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},body:JSON.stringify(cmd),signal:AbortSignal.timeout(6000)});
  const j=await r.json();if(!r.ok||j.error)throw Error('redis');return j.result;
@@ -31,15 +31,15 @@ async function tick(c){
  const now=Date.now(),all=pairs(await redis(c,'HGETALL',SUB)),subs=[],expired=[];
  for(const [id,v] of Object.entries(all)){const s=parse(v);if(!s||s.seen<now-90*86400000||!subscriptionOK(s.subscription)){expired.push(id);continue}if((s.fm.length||s.ft.length)&&hasNotices(s))subs.push([id,s])}
  if(expired.length)await redis(c,'HDEL',SUB,...expired);
- if(!subs.length){await markTick(c,now,'idle');return {checked:0,sent:0}}
+ if(!subs.length){await markTick(c,now,'idle','idle');return {checked:0,sent:0}}
  const previous=pairs(await redis(c,'HGETALL',STATE)),changed=Math.max(...subs.map(([,s])=>Number(s.changed)||0));
  const espnSubs=subs.filter(([,s])=>s.fm.some(id=>!id.startsWith('ds'))||s.ft.some(id=>!dsTeam(id)));
  const dsSubs=subs.filter(([,s])=>s.fm.some(id=>id.startsWith('ds'))||s.ft.some(dsTeam));
  const due=espnSubs.length?leagues.filter(l=>shouldScan(parse(previous[l]),now,changed)):[];
  const dsOld=parse(previous['ds-all'])||{},dsDue=dsSubs.length&&process.env.DATASPORTS_API_KEY&&shouldScan(dsOld,now,Math.max(...dsSubs.map(([,s])=>Number(s.changed)||0)));
- if(!due.length&&!dsDue){await markTick(c,now,'ok');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
+ if(!due.length&&!dsDue){await markTick(c,now,'ok',dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle');return {checked:subs.length,leagues:0,sent:0,adaptive:true}}
  const result=await Promise.allSettled(due.map(l=>scores(l,now))),updates=[],out=[];
- let dsState=dsSubs.length?'cached':'idle';
+ let dsState=dsSubs.length?(process.env.DATASPORTS_API_KEY?'cached':'not_configured'):'idle';
  if(dsDue){try{
  const today=new Date(now).toISOString().slice(0,10),yesterday=new Date(now-86400000).toISOString().slice(0,10);
  const dsPeople=dsSubs.map(([,s])=>s),oldEvents=Object.values(dsOld).filter(x=>x&&typeof x==='object'&&x.lg);
@@ -91,7 +91,7 @@ export default async function handler(req,res){
   if(action==='status'&&req.method==='GET'){
    const s=parse(await redis(c,'GET',STATUS));
    res.setHeader('Cache-Control','s-maxage=30, stale-while-revalidate=30');
-   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started',dsState:s?.dsState||'idle'});
+   return res.status(200).json({lastTick:s?.lastTick||null,state:s?.state||'not_started',dsState:s?.dsState||'idle',dsConfigured:!!process.env.DATASPORTS_API_KEY});
   }
   if(action==='tick'){
    if(req.method!=='POST')return reply(res,405,{error:'method'});

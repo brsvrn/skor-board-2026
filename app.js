@@ -152,7 +152,7 @@ async function loadSum(lg,id){
   if(V.match&&V.match.id===id)window.TribunPush?.sync(S,true);
 render();return}
  const j=await api(`site/v2/sports/${sp(lg)}/${lg}/summary?event=${id}`);
- if(j){D.sum[id]=j;if(V.match&&V.match.id===id)render();if(!isB(lg)&&!isDS(lg)&&V.match?.id===id&&V.dtab==='bil')await enrichOfficials(j,lg,id).catch(()=>{})}
+ if(j){const prev=D.sum[id];if(prev?.dsOfficialDone){j.dsOfficialDone=true;j.currentManagers=prev.currentManagers;if(prev.coaches?.length)j.coaches=prev.coaches;if(prev.gameInfo?.officials?.length){j.gameInfo=j.gameInfo||{};j.gameInfo.officials=[...(j.gameInfo.officials||[]),...prev.gameInfo.officials]}}D.sum[id]=j;if(V.match&&V.match.id===id)render();if(!isB(lg)&&!isDS(lg)&&V.match?.id===id&&V.dtab==='bil')await enrichOfficials(j,lg,id).catch(()=>{})}
  else if(!D.sum[id]){D.sum[id]={failed:1};if(V.match&&V.match.id===id)render()}}
 async function loadStand(lg){
  if(isDS(lg)){const j=await dsApi({action:'stand',league:lg});D.stand[lg]=j?.groups?.length?j.groups:'no_data';if(V.tab==='std'||V.team)render();return}
